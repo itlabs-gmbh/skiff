@@ -244,7 +244,8 @@ packages, tools, skills, then your `setup` script. Skills are rebuilt from
 scratch then, so one dropped from the profile disappears; packages that were
 installed stay. The setup must not see the broker, so `apply --setup`
 refuses a VM with an open session or tunnel: close them first. A session
-started during the setup waits for it to end.
+started during the setup runs right away, but its broker connection waits
+for the setup to end, so a command that needs a capability fails until then.
 
 | Change in `.skiff`                         | Command                      |
 |--------------------------------------------|------------------------------|

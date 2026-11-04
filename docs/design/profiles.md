@@ -64,8 +64,9 @@ Sections and where they land:
   with a tunnel, so a script cannot reach a credential while it runs (what
   it installs can, once the grants are made; hence the trust above). While
   it runs, skiff owns the VM's broker claim: an open session or tunnel makes
-  `apply --setup` refuse, a session started meanwhile waits in standby, and
-  a second setup cannot interleave with the first. It runs before the VM's
+  `apply --setup` refuse, a session started meanwhile gets its shell at once
+  but its broker only when the setup ends (standby), and a second setup
+  cannot interleave with the first. It runs before the VM's
   grant lock is taken, because `new` and `gc` wait on every VM's lock and a
   setup takes minutes; a clash between profile and grants is rendered and
   rejected before the setup starts. The script body is a function called
