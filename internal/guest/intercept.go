@@ -61,8 +61,8 @@ func (p Plan) WithIntercept(hosts []string, caPEM []byte) (Plan, error) {
 			return Plan{}, fmt.Errorf("intercept: invalid host %q", h)
 		}
 	}
-	if block, rest := pem.Decode(caPEM); block == nil || block.Type != "CERTIFICATE" || len(strings.TrimSpace(string(rest))) > 0 {
-		return Plan{}, errors.New("intercept: CA must be exactly one PEM certificate")
+	if err := checkCertificates(caPEM); err != nil {
+		return Plan{}, err
 	}
 	env := maps.Clone(p.Env)
 	if env == nil {
@@ -82,6 +82,29 @@ func (p Plan) WithIntercept(hosts []string, caPEM []byte) (Plan, error) {
 	return out, nil
 }
 
+// checkCertificates accepts one or more PEM certificates and nothing else:
+// while a CA changes the guest trusts the current and the next one, and no
+// key may ever reach the guest.
+func checkCertificates(caPEM []byte) error {
+	rest := caPEM
+	count := 0
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			return fmt.Errorf("intercept: CA may only contain certificates, found %s", block.Type)
+		}
+		count++
+	}
+	if count == 0 || len(strings.TrimSpace(string(rest))) > 0 {
+		return errors.New("intercept: CA must be PEM certificates only")
+	}
+	return nil
+}
+
 func (i *Intercept) manifest() []string {
 	return []string{
 		"file:" + InterceptCAFile, "file:" + InterceptSocketUnit, "file:" + InterceptServiceUnit,
@@ -98,7 +121,9 @@ func isInterceptFile(p string) bool {
 func (i *Intercept) write(b *strings.Builder) {
 	writeFile(b, InterceptCAFile+".new", "0644", i.CACert)
 	newCA, ca := shQuote(InterceptCAFile+".new"), shQuote(InterceptCAFile)
-	b.WriteString("if cmp -s " + newCA + " " + ca + "; then rm -f " + newCA + "; else mv -f " + newCA + " " + ca + "; " + updateTrust("") + "; fi\n")
+	// A failed rebuild removes the CA again, so the next grant sees a change
+	// and retries instead of skipping identical bytes.
+	b.WriteString("if cmp -s " + newCA + " " + ca + "; then rm -f " + newCA + "; else mv -f " + newCA + " " + ca + "; " + updateTrust("", "rm -f "+ca) + "; fi\n")
 	writeFile(b, InterceptSocketUnit, "0644", []byte(interceptSocket()))
 	writeFile(b, InterceptServiceUnit, "0644", []byte(interceptService()))
 	b.WriteString("if " + asRootOnSystemd + "; then systemctl daemon-reload && systemctl --quiet enable --now " + path.Base(InterceptSocketUnit) + "; fi\n")
@@ -115,15 +140,21 @@ func stopIntercept(b *strings.Builder) {
 // updateTrust rebuilds the system trust store. It only runs as root: tests
 // execute the scripts under a temporary root as an ordinary user, where the
 // real tool would try to rewrite the host's store.
-func updateTrust(flags string) string {
+// onFail runs before the script fails, to undo what made the rebuild
+// necessary.
+func updateTrust(flags, onFail string) string {
 	cmd := "update-ca-certificates"
 	if flags != "" {
 		cmd += " " + flags
 	}
+	undo := ""
+	if onFail != "" {
+		undo = onFail + "; "
+	}
 	// Its routine warnings about the bundle would show on every grant; the
 	// output is printed only when it fails.
 	return `if [ "$(id -u)" = 0 ] && command -v update-ca-certificates >/dev/null; then ` +
-		`out=$(` + cmd + ` 2>&1) || { echo "$out" >&2; exit 1; }; fi`
+		`out=$(` + cmd + ` 2>&1) || { echo "$out" >&2; ` + undo + `exit 1; }; fi`
 }
 
 func interceptSocket() string {

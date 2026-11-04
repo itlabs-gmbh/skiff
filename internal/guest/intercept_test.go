@@ -97,6 +97,7 @@ func TestWithInterceptRejects(t *testing.T) {
 		{"host with space", nil, []string{"a.example.com evil.example.com"}, testCAPEM, "host"},
 		{"host with newline", nil, []string{"a.example.com\n1.2.3.4 x"}, testCAPEM, "host"},
 		{"not a certificate", nil, interceptHosts, "garbage", "certificate"},
+		{"private key", nil, interceptHosts, testCAPEM + "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEE\n-----END EC PRIVATE KEY-----\n", "certificate"},
 		{"env set by a cap", []cap.Cap{squatter}, interceptHosts, testCAPEM, "SSL_CERT_FILE"},
 	}
 	for _, tt := range tests {
@@ -196,5 +197,48 @@ func TestInterceptScriptsRunUnderBash(t *testing.T) {
 	}
 	if _, err := os.Stat(rooted(InterceptCAFile)); !os.IsNotExist(err) {
 		t.Errorf("CA file survived revoke: %v", err)
+	}
+}
+
+// While a CA changes, the guest trusts the current and the next certificate.
+func TestWithInterceptAcceptsTwoCertificates(t *testing.T) {
+	plan, err := Render(nil, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err = plan.WithIntercept(interceptHosts, []byte(testCAPEM+testCAPEM))
+	if err != nil {
+		t.Fatalf("WithIntercept: %v", err)
+	}
+	script, err := plan.ApplyScript(State{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := decodeHeredoc(t, script, InterceptCAFile+".new"); got != testCAPEM+testCAPEM {
+		t.Fatalf("CA file = %q", got)
+	}
+}
+
+// If rebuilding the trust store fails, the CA file must not stay in place:
+// the next grant would find identical bytes, skip the rebuild and report
+// success while HTTPS clients still reject the broker.
+func TestFailedTrustUpdateIsRetried(t *testing.T) {
+	plan := interceptPlan(t)
+	script, err := plan.ApplyScript(State{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := ""
+	for _, l := range strings.Split(script, "\n") {
+		if strings.Contains(l, "update-ca-certificates") && strings.Contains(l, "cmp -s") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("no trust update in:\n%s", script)
+	}
+	failure := line[strings.Index(line, "||"):]
+	if !strings.Contains(failure, "rm -f '"+InterceptCAFile+"'") || !strings.Contains(failure, "exit 1") {
+		t.Errorf("a failed update must remove the CA file and fail:\n%s", line)
 	}
 }

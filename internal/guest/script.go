@@ -101,7 +101,7 @@ func (p Plan) ApplyScript(st State) (string, error) {
 		b.WriteString("if " + asRootOnSystemd + "; then systemctl daemon-reload; fi\n")
 	}
 	if slices.Contains(stale, InterceptCAFile) {
-		b.WriteString(updateTrust("--fresh") + "\n")
+		b.WriteString(updateTrust("--fresh", "") + "\n")
 	}
 	for _, f := range p.Files {
 		writeFile(&b, f.Path, f.Mode, []byte(f.Content))

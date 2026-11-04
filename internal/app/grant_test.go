@@ -21,6 +21,9 @@ type sshScripts struct {
 	state string
 	calls int
 	fake  *runner.Fake
+	// failApply makes the apply script (every even call) fail, as a broken
+	// SSH connection would.
+	failApply bool
 }
 
 func (s *sshScripts) handle(fallback runner.FakeHandler) runner.FakeHandler {
@@ -34,6 +37,9 @@ func (s *sshScripts) handle(fallback runner.FakeHandler) runner.FakeHandler {
 		s.calls++
 		if s.calls%2 == 1 {
 			return []byte(s.state), nil
+		}
+		if s.failApply {
+			return nil, errors.New("connection reset")
 		}
 		return nil, nil
 	}
@@ -347,5 +353,55 @@ func TestGrantWithoutInterceptCreatesNoCA(t *testing.T) {
 	}
 	if strings.Contains(decodeAll(scripts.last()), "127.77.0.1") {
 		t.Error("intercept provisioned without an intercept grant")
+	}
+}
+
+// A grant that grows the CA must keep the old one when the guest cannot be
+// updated: the running broker would otherwise present a CA the guest does
+// not trust and break routes that worked.
+func TestGrantKeepsCAWhenGuestUpdateFails(t *testing.T) {
+	scripts := &sshScripts{state: "/etc/skiff/manifest\n\n"}
+	app, _ := newGrantApp(t, scripts)
+	writeCap := func(name, host string) {
+		t.Helper()
+		text := strings.ReplaceAll(strings.Replace(interceptCapFile, `name = "cloud"`, `name = "`+name+`"`, 1), "management.cloud.example", host)
+		if err := os.MkdirAll(app.paths.CapsDir(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(app.paths.CapsDir(), name+".toml"), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeCap("cloud", "management.cloud.example")
+	writeCap("graph", "graph.cloud.example")
+	if _, err := app.Grant(context.Background(), "agent1", []string{"cloud"}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := app.grantStore().InterceptDir("agent1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, "ca.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scripts.failApply = true
+	if _, err := app.Grant(context.Background(), "agent1", []string{"graph"}); err == nil {
+		t.Fatal("grant succeeded although the guest update failed")
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "ca.pem")); string(after) != string(before) {
+		t.Fatal("a failed grant replaced the CA")
+	}
+
+	scripts.failApply = false
+	if _, err := app.Grant(context.Background(), "agent1", []string{"graph"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(decodeAll(scripts.last()), "BEGIN CERTIFICATE"); n != 2 {
+		t.Errorf("during the change the guest must trust both CAs, got %d certificates", n)
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, "ca.pem")); string(after) == string(before) {
+		t.Error("a successful grant did not commit the grown CA")
 	}
 }

@@ -16,7 +16,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"io/fs"
 	"math/big"
 	"net"
 	"os"
@@ -66,34 +65,17 @@ type Authority struct {
 	leaves map[string]*tls.Certificate
 }
 
-// LoadOrCreate returns the CA stored in dir. It issues a new one when there
-// is none, when the stored one does not cover every host or when it is about
-// to expire; created reports that, since the guest must then trust the new
-// certificate. A CA only grows: hosts it covers but that are no longer
-// requested stay permitted, because grants are checked per request anyway.
+// LoadOrCreate prepares the CA for hosts and commits it at once; created
+// reports a new CA. Callers that must update the guest first use Prepare.
 func LoadOrCreate(dir string, hosts []string, now func() time.Time) (a *Authority, created bool, err error) {
-	hosts = normalize(hosts)
-	if len(hosts) == 0 {
-		return nil, false, errors.New("intercept CA: no hosts to cover")
-	}
-	existing, err := load(dir, now)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, false, err
-	}
-	if existing != nil && existing.coversAll(hosts) && existing.cert.NotAfter.Sub(now()) > caRenewBefore {
-		return existing, false, nil
-	}
-	if existing != nil {
-		hosts = normalize(append(hosts, existing.cert.PermittedDNSDomains...))
-	}
-	a, err = create(hosts, now)
+	r, err := Prepare(dir, hosts, now)
 	if err != nil {
 		return nil, false, err
 	}
-	if err := a.save(dir); err != nil {
+	if created, err = r.Commit(); err != nil {
 		return nil, false, err
 	}
-	return a, true, nil
+	return r.Active(), created, nil
 }
 
 // CertPEM is the certificate the guest must trust.
