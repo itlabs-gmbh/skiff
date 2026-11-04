@@ -62,9 +62,13 @@ Sections and where they land:
 - **Setup before grants, without the broker, outside the lock.** The setup
   runs over plain ssh right after boot, before any grant exists and never
   with a tunnel, so a script cannot reach a credential while it runs (what
-  it installs can, once the grants are made; hence the trust above). It
-  runs before the VM's lock is taken, because `new` and `gc` wait on every
-  VM's lock and a setup takes minutes. The script body is a function called
+  it installs can, once the grants are made; hence the trust above). While
+  it runs, skiff owns the VM's broker claim: an open session or tunnel makes
+  `apply --setup` refuse, a session started meanwhile waits in standby, and
+  a second setup cannot interleave with the first. It runs before the VM's
+  grant lock is taken, because `new` and `gc` wait on every VM's lock and a
+  setup takes minutes; a clash between profile and grants is rendered and
+  rejected before the setup starts. The script body is a function called
   with stdin closed: `bash -s` reads the script from stdin, and a command
   that read stdin would eat the rest of it. Skills are cloned with
   `GIT_CONFIG_NOSYSTEM=1` so the github cap's `insteadOf` rewrite does not
@@ -76,6 +80,11 @@ Sections and where they land:
   skiff's file is skiff's. The drop-in cannot be edited away by the agent,
   which is what a profile means. `CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1` is set
   when plugins are declared so `claude -p` waits for the install.
+- **Settings are rendered before they are encoded.** A template inside a
+  settings value contains quotes that JSON or TOML encoding would escape;
+  so the free-form tables are rendered with the VM's data first, and the
+  encoded file is handed to the planner with its braces escaped. Env values
+  and Claude MCP entries stay templates, as in capability files.
 - **Skills by clone and symlink, not by marketplace.** Both agents scan a
   personal skills directory; a symlink there needs no plugin machinery,
   works offline after setup, and the same clone serves Codex (which has no

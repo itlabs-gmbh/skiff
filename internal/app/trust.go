@@ -45,15 +45,12 @@ func untrustedError(path string, p profile.Profile) error {
 	return fmt.Errorf("%w: %s%s; read it with 'skiff profile show --render', then 'skiff profile trust' or --trust, or pass --no-profile", ErrUntrusted, path, what)
 }
 
-// trustKey identifies a file by its absolute path and content.
-func trustKey(path string) (string, error) {
+// trustKey identifies a file by its absolute path and the content it was
+// read with, so what is checked is what gets applied.
+func trustKey(path string, data []byte) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", path, err)
-	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		return "", fmt.Errorf("read profile: %w", err)
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]) + " " + abs, nil
@@ -61,12 +58,8 @@ func trustKey(path string) (string, error) {
 
 func (a *App) trustedPath() string { return filepath.Join(a.paths.Home, trustedFile) }
 
-// isTrusted reports whether the file's current content is on record.
-func (a *App) isTrusted(path string) (bool, error) {
-	key, err := trustKey(path)
-	if err != nil {
-		return false, err
-	}
+// isTrusted reports whether a trust key is on record.
+func (a *App) isTrusted(key string) (bool, error) {
 	f, err := os.Open(a.trustedPath())
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
@@ -89,10 +82,18 @@ func (a *App) isTrusted(path string) (bool, error) {
 
 // ProfileTrust validates the file and records its content as trusted.
 func (a *App) ProfileTrust(path string) error {
-	if _, err := profile.ParseFile(path); err != nil {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read profile: %w", err)
+	}
+	if _, err := profile.Parse(string(data), path); err != nil {
 		return err
 	}
-	ok, err := a.isTrusted(path)
+	key, err := trustKey(path, data)
+	if err != nil {
+		return err
+	}
+	ok, err := a.isTrusted(key)
 	if err != nil {
 		return err
 	}
@@ -100,10 +101,15 @@ func (a *App) ProfileTrust(path string) error {
 		a.printf("%s is already trusted\n", path)
 		return nil
 	}
-	key, err := trustKey(path)
-	if err != nil {
+	if err := a.recordTrust(key); err != nil {
 		return err
 	}
+	a.printf("trusted %s (until it changes)\n", path)
+	return nil
+}
+
+// recordTrust appends a trust key to the record.
+func (a *App) recordTrust(key string) error {
 	if err := os.MkdirAll(a.paths.Home, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", a.paths.Home, err)
 	}
@@ -115,6 +121,5 @@ func (a *App) ProfileTrust(path string) error {
 	if _, err := f.WriteString(key + "\n"); err != nil {
 		return fmt.Errorf("record trust: %w", err)
 	}
-	a.printf("trusted %s (until it changes)\n", path)
 	return nil
 }

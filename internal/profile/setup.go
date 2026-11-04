@@ -46,12 +46,13 @@ func KnownTool(name string) bool {
 }
 
 // SetupScript renders the bash script that installs packages, tools and
-// skills and then runs the profile's own setup, as root in the guest. It is
-// empty when the profile installs nothing. The broker is not up while it
-// runs, so nothing in it can use a capability; git bypasses /etc/gitconfig
-// for the same reason. The script is streamed to `bash -s`, so its body is
-// a function called with stdin closed: a command that reads stdin would
-// otherwise eat the rest of the script.
+// skills and then runs the profile's own setup, as root in the guest. Skills
+// are always rebuilt, so one dropped from the profile disappears even when
+// nothing else is installed. The broker is not up while it runs, so nothing
+// in it can use a capability; git bypasses /etc/gitconfig for the same
+// reason. The script is streamed to `bash -s`, so its body is a function
+// called with stdin closed: a command that reads stdin would otherwise eat
+// the rest of the script.
 func (p Profile) SetupScript(data cap.TemplateData) (string, error) {
 	skills, err := ParseSkills(p.Skills)
 	if err != nil {
@@ -60,9 +61,6 @@ func (p Profile) SetupScript(data cap.TemplateData) (string, error) {
 	setup, err := cap.RenderGuest(p.Guest.Setup, data)
 	if err != nil {
 		return "", fmt.Errorf("guest.setup: %w", err)
-	}
-	if len(p.Guest.Packages) == 0 && len(p.Guest.Tools) == 0 && len(skills) == 0 && strings.TrimSpace(setup) == "" {
-		return "", nil
 	}
 	var b strings.Builder
 	b.WriteString("skiff_setup() {\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\n")
@@ -82,9 +80,7 @@ func (p Profile) SetupScript(data cap.TemplateData) (string, error) {
 		b.WriteString("echo '==> installing " + tool + "'\n")
 		b.Write(script)
 	}
-	if len(skills) > 0 {
-		writeSkills(&b, skills)
-	}
+	writeSkills(&b, skills)
 	if strings.TrimSpace(setup) != "" {
 		b.WriteString("echo '==> running setup'\n")
 		b.WriteString("base64 -d > " + setupFile + " <<'SKIFF_B64'\n" + base64.StdEncoding.EncodeToString([]byte(setup)) + "\nSKIFF_B64\n")
@@ -98,7 +94,9 @@ func (p Profile) SetupScript(data cap.TemplateData) (string, error) {
 // the agents' skill directories; links from an earlier run are removed
 // first, so a skill dropped from the profile disappears.
 func writeSkills(b *strings.Builder, skills []Skill) {
-	b.WriteString("echo '==> installing skills'\n")
+	if len(skills) > 0 {
+		b.WriteString("echo '==> installing skills'\n")
+	}
 	b.WriteString("rm -rf " + SkillsDir + "\ninstall -d -m 0755 " + SkillsDir + "\n")
 	for _, dir := range skillLinkDirs {
 		b.WriteString("install -d -m 0755 " + dir + "\n")

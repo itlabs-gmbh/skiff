@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"slices"
 	"strings"
 
+	"github.com/sovyn-eu/skiff/internal/broker"
 	"github.com/sovyn-eu/skiff/internal/cap"
 	"github.com/sovyn-eu/skiff/internal/grant"
 	"github.com/sovyn-eu/skiff/internal/guest"
@@ -21,72 +21,91 @@ import (
 // default name (.skiff) is simply skipped when it is missing. Both files
 // are optional, so the result may be zero.
 func (a *App) ResolveProfile(repoFile string, explicit bool) (profile.Profile, error) {
+	p, _, err := a.resolveProfile(repoFile, explicit)
+	return p, err
+}
+
+// resolveProfile also returns the bytes the repository file was parsed
+// from, so a trust check hashes exactly what will be applied.
+func (a *App) resolveProfile(repoFile string, explicit bool) (profile.Profile, []byte, error) {
 	var merged profile.Profile
-	base, found, err := loadOptional(a.paths.ProfilePath())
+	data, found, err := readOptional(a.paths.ProfilePath())
 	if err != nil {
-		return profile.Profile{}, err
+		return profile.Profile{}, nil, err
 	}
 	if found {
-		merged = base
-	}
-	if repoFile == "" {
-		return merged, nil
-	}
-	repo, found, err := loadOptional(repoFile)
-	if err != nil {
-		return profile.Profile{}, err
-	}
-	if !found {
-		if explicit {
-			return profile.Profile{}, fmt.Errorf("profile %s does not exist", repoFile)
+		if merged, err = profile.Parse(string(data), a.paths.ProfilePath()); err != nil {
+			return profile.Profile{}, nil, err
 		}
-		return merged, nil
 	}
-	merged = profile.Merge(merged, repo)
+	var repoData []byte
+	if repoFile != "" {
+		data, found, err := readOptional(repoFile)
+		if err != nil {
+			return profile.Profile{}, nil, err
+		}
+		if !found && explicit {
+			return profile.Profile{}, nil, fmt.Errorf("profile %s does not exist", repoFile)
+		}
+		if found {
+			repo, err := profile.Parse(string(data), repoFile)
+			if err != nil {
+				return profile.Profile{}, nil, err
+			}
+			merged = profile.Merge(merged, repo)
+			repoData = data
+		}
+	}
+	// Each file was checked on its own; references between them (a plugin's
+	// marketplace) and the default alone are checked here, on every path.
 	if err := merged.Validate(); err != nil {
-		return profile.Profile{}, fmt.Errorf("%s: %w", strings.Join(merged.Sources, " + "), err)
+		return profile.Profile{}, nil, fmt.Errorf("%s: %w", strings.Join(merged.Sources, " + "), err)
 	}
-	return merged, nil
+	return merged, repoData, nil
+}
+
+func readOptional(path string) ([]byte, bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read profile: %w", err)
+	}
+	return data, true, nil
 }
 
 // ResolveTrustedProfile is ResolveProfile for commands that act on the
 // profile: a repository file must have been trusted (skiff profile trust)
-// in its current content, or trust records it now.
+// in its current content, or trust records it now. The trust check and the
+// parse share one read of the file.
 func (a *App) ResolveTrustedProfile(repoFile string, explicit, trust bool) (profile.Profile, error) {
-	p, err := a.ResolveProfile(repoFile, explicit)
+	p, repoData, err := a.resolveProfile(repoFile, explicit)
 	if err != nil {
 		return profile.Profile{}, err
 	}
-	if repoFile == "" || !slices.Contains(p.Sources, repoFile) {
+	if repoData == nil {
 		return p, nil
 	}
-	if trust {
-		if err := a.ProfileTrust(repoFile); err != nil {
+	key, err := trustKey(repoFile, repoData)
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	ok, err := a.isTrusted(key)
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	switch {
+	case ok:
+		return p, nil
+	case trust:
+		if err := a.recordTrust(key); err != nil {
 			return profile.Profile{}, err
 		}
+		a.printf("trusted %s (until it changes)\n", repoFile)
 		return p, nil
 	}
-	ok, err := a.isTrusted(repoFile)
-	if err != nil {
-		return profile.Profile{}, err
-	}
-	if !ok {
-		return profile.Profile{}, untrustedError(repoFile, p)
-	}
-	return p, nil
-}
-
-func loadOptional(path string) (profile.Profile, bool, error) {
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return profile.Profile{}, false, nil
-	} else if err != nil {
-		return profile.Profile{}, false, fmt.Errorf("check %s: %w", path, err)
-	}
-	p, err := profile.ParseFile(path)
-	if err != nil {
-		return profile.Profile{}, false, err
-	}
-	return p, true, nil
+	return profile.Profile{}, untrustedError(repoFile, p)
 }
 
 // Apply makes a profile the VM's: its grants are added to extra and granted,
@@ -124,15 +143,26 @@ func (a *App) Apply(ctx context.Context, name string, p profile.Profile, extra [
 	if len(p.Sources) > 0 {
 		a.printf("applying profile %s to %s\n", strings.Join(p.Sources, " + "), name)
 	}
+	store := a.grantStore()
 	// The setup can take minutes and touches neither grants nor the stored
 	// profile, so it runs before the VM's lock is taken: `skiff new` and
-	// `gc` wait on that lock for every VM.
+	// `gc` wait on that lock for every VM. A clash between the profile and
+	// the grants is checked first, so it cannot surface after the installs.
 	if setup {
+		current, err := store.Load(name)
+		if err != nil {
+			return nil, err
+		}
+		for _, g := range requested {
+			current = current.Add(g)
+		}
+		if _, err := a.renderPlan(name, caps, current, &p); err != nil {
+			return nil, err
+		}
 		if err := a.runSetup(ctx, name, p); err != nil {
 			return nil, err
 		}
 	}
-	store := a.grantStore()
 	unlock, err := store.Lock(name)
 	if err != nil {
 		return nil, err
@@ -161,9 +191,10 @@ func (a *App) Apply(ctx context.Context, name string, p profile.Profile, extra [
 }
 
 // runSetup streams the profile's setup script into the guest, with its
-// output on the terminal. The broker is not up, so the script cannot use
-// a capability; that is what keeps a repository's .skiff from reaching
-// credentials.
+// output on the terminal. It owns the VM's broker claim while it runs, so no
+// broker serves the VM: an open session or tunnel is refused, a session
+// started meanwhile waits in standby, and a second setup cannot interleave.
+// That is what keeps a repository's .skiff from reaching credentials.
 func (a *App) runSetup(ctx context.Context, name string, p profile.Profile) error {
 	data, err := a.templateData(name)
 	if err != nil {
@@ -173,15 +204,25 @@ func (a *App) runSetup(ctx context.Context, name string, p profile.Profile) erro
 	if err != nil {
 		return err
 	}
-	if script == "" {
-		return nil
-	}
 	if err := a.backend.Ready(ctx); err != nil {
 		return err
 	}
 	if err := a.ensureSSHConfig(); err != nil {
 		return err
 	}
+	socket := a.paths.SocketPath(name)
+	release, err := broker.Claim(socket)
+	if err == nil && broker.Alive(socket) {
+		release()
+		err = broker.ErrBusy
+	}
+	if errors.Is(err, broker.ErrBusy) {
+		return fmt.Errorf("%s has an open session, tunnel or setup; close it before running the setup, which must not see the broker", name)
+	}
+	if err != nil {
+		return err
+	}
+	defer release()
 	a.printf("setting up %s\n", name)
 	if err := a.r.RunWithInput(ctx, strings.NewReader(script), "ssh", a.sshArgs(name, []string{"bash", "-s"})...); err != nil {
 		return fmt.Errorf("setup of %s failed: %w", name, err)
@@ -247,7 +288,7 @@ func (a *App) printProfilePlan(p profile.Profile, vmName string) error {
 	if vmName == "" {
 		vmName = data.VM
 	}
-	c, err := p.GuestConfig()
+	c, err := p.GuestConfig(data)
 	if err != nil {
 		return err
 	}

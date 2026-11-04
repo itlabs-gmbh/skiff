@@ -150,35 +150,10 @@ func (a *App) templateData(name string) (cap.TemplateData, error) {
 // VM's profile and applies it over SSH: one call reads the current state,
 // one call applies the plan. A nil prof means the profile stored for the VM.
 func (a *App) provision(ctx context.Context, name string, caps cap.Set, set grant.Set, prof *profile.Profile) error {
-	data, err := a.templateData(name)
+	plan, err := a.renderPlan(name, caps, set, prof)
 	if err != nil {
 		return err
 	}
-	if prof == nil {
-		if prof, err = a.storedProfile(name); err != nil {
-			return err
-		}
-	}
-	var granted []cap.Cap
-	for _, n := range set.Caps() {
-		if c, ok := caps[n]; ok {
-			granted = append(granted, c)
-		}
-	}
-	all := granted
-	if prof != nil && !prof.IsZero() {
-		pc, err := prof.GuestConfig()
-		if err != nil {
-			return err
-		}
-		all = append(append([]cap.Cap(nil), granted...), pc)
-	}
-	plan, err := guest.Render(all, data)
-	if err != nil {
-		return err
-	}
-	// The relay only serves capabilities; a profile alone does not need it.
-	plan.Relay = len(granted) > 0
 	plan, rotation, err := a.withIntercept(plan, name, caps, set)
 	if err != nil {
 		return err
@@ -205,6 +180,42 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 		return fmt.Errorf("apply guest configuration to %s: %w", name, err)
 	}
 	return a.commitIntercept(name, rotation)
+}
+
+// renderPlan renders the guest configuration of the granted caps plus the
+// VM's profile (the stored one when prof is nil). A profile is rendered as a
+// pseudo-capability, so a clash with a cap is reported like one between caps.
+func (a *App) renderPlan(name string, caps cap.Set, set grant.Set, prof *profile.Profile) (guest.Plan, error) {
+	data, err := a.templateData(name)
+	if err != nil {
+		return guest.Plan{}, err
+	}
+	if prof == nil {
+		if prof, err = a.storedProfile(name); err != nil {
+			return guest.Plan{}, err
+		}
+	}
+	var granted []cap.Cap
+	for _, n := range set.Caps() {
+		if c, ok := caps[n]; ok {
+			granted = append(granted, c)
+		}
+	}
+	all := granted
+	if prof != nil && !prof.IsZero() {
+		pc, err := prof.GuestConfig(data)
+		if err != nil {
+			return guest.Plan{}, err
+		}
+		all = append(append([]cap.Cap(nil), granted...), pc)
+	}
+	plan, err := guest.Render(all, data)
+	if err != nil {
+		return guest.Plan{}, err
+	}
+	// The relay only serves capabilities; a profile alone does not need it.
+	plan.Relay = len(granted) > 0
+	return plan, nil
 }
 
 // withIntercept adds interception to the plan when a granted capability

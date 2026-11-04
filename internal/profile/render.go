@@ -30,9 +30,11 @@ const (
 
 // GuestConfig renders the profile's guest-facing sections as a capability
 // named Owner, so the same planner that applies grants applies the profile
-// and reports a clash between the two. Strings stay templates; the planner
-// renders them with the VM's data.
-func (p Profile) GuestConfig() (cap.Cap, error) {
+// and reports a clash between the two. Env and MCP values stay templates
+// for the planner; the settings and config files are rendered here, before
+// they are encoded, because encoding would escape the quotes inside a
+// template, and the encoded text is then protected from the planner.
+func (p Profile) GuestConfig(data cap.TemplateData) (cap.Cap, error) {
 	c := cap.Cap{Name: Owner, Description: "profile " + strings.Join(p.Sources, " + "), Source: strings.Join(p.Sources, " + ")}
 	c.Guest.Env = mergeStrings(nil, p.Guest.Env)
 	if p.Claude != nil {
@@ -42,24 +44,24 @@ func (p Profile) GuestConfig() (cap.Cap, error) {
 			}
 			c.Guest.Env[syncPluginInstall] = "1"
 		}
-		settings, err := p.Claude.managedSettings()
+		settings, err := p.Claude.managedSettings(data)
 		if err != nil {
 			return cap.Cap{}, err
 		}
 		if settings != "" {
-			c.Guest.Files = append(c.Guest.Files, cap.File{Path: ClaudeSettingsFile, Mode: "0644", Content: settings})
+			c.Guest.Files = append(c.Guest.Files, cap.File{Path: ClaudeSettingsFile, Mode: "0644", Content: literal(settings)})
 		}
 		for _, name := range sortedKeys(p.Claude.MCP) {
 			c.Guest.JSONMerge = append(c.Guest.JSONMerge, cap.JSONMerge{Path: ClaudeConfigFile, Key: "mcpServers." + name, Value: copyTable(p.Claude.MCP[name])})
 		}
 	}
 	if p.Codex != nil {
-		text, err := p.Codex.configFile()
+		text, err := p.Codex.configFile(data)
 		if err != nil {
 			return cap.Cap{}, err
 		}
 		if text != "" {
-			c.Guest.Files = append(c.Guest.Files, cap.File{Path: CodexConfigFile, Mode: "0600", Content: text})
+			c.Guest.Files = append(c.Guest.Files, cap.File{Path: CodexConfigFile, Mode: "0600", Content: literal(text)})
 		}
 	}
 	return c, nil
@@ -68,12 +70,19 @@ func (p Profile) GuestConfig() (cap.Cap, error) {
 // managedSettings renders the drop-in: the free-form settings plus the
 // marketplaces and plugins in the keys Claude Code expects. Empty when the
 // section declares nothing of the kind.
-func (c Claude) managedSettings() (string, error) {
-	doc := copyTable(c.Settings)
+func (c Claude) managedSettings(data cap.TemplateData) (string, error) {
+	doc, err := renderTable(c.Settings, data)
+	if err != nil {
+		return "", fmt.Errorf("claude.settings: %w", err)
+	}
 	if len(c.Marketplaces) > 0 {
 		marketplaces := map[string]any{}
 		for name, source := range c.Marketplaces {
-			marketplaces[name] = map[string]any{"source": copyTable(source)}
+			rendered, err := renderTable(source, data)
+			if err != nil {
+				return "", fmt.Errorf("claude.marketplaces.%s: %w", name, err)
+			}
+			marketplaces[name] = map[string]any{"source": rendered}
 		}
 		doc["extraKnownMarketplaces"] = marketplaces
 	}
@@ -99,12 +108,19 @@ func (c Claude) managedSettings() (string, error) {
 
 // configFile renders the Codex section as config.toml: the free-form config
 // and one [mcp_servers.<name>] per server.
-func (c Codex) configFile() (string, error) {
-	doc := copyTable(c.Config)
+func (c Codex) configFile(data cap.TemplateData) (string, error) {
+	doc, err := renderTable(c.Config, data)
+	if err != nil {
+		return "", fmt.Errorf("codex.config: %w", err)
+	}
 	if len(c.MCP) > 0 {
 		servers := map[string]any{}
 		for name, server := range c.MCP {
-			servers[name] = copyTable(server)
+			rendered, err := renderTable(server, data)
+			if err != nil {
+				return "", fmt.Errorf("codex.mcp.%s: %w", name, err)
+			}
+			servers[name] = rendered
 		}
 		doc["mcp_servers"] = servers
 	}
@@ -117,4 +133,23 @@ func (c Codex) configFile() (string, error) {
 		return "", fmt.Errorf("render codex config: %w", err)
 	}
 	return b.String(), nil
+}
+
+// renderTable evaluates every template string in a table.
+func renderTable(m map[string]any, data cap.TemplateData) (map[string]any, error) {
+	v, err := cap.RenderValue(copyTable(m), data)
+	if err != nil {
+		return nil, err
+	}
+	out, _ := v.(map[string]any)
+	if out == nil {
+		out = map[string]any{}
+	}
+	return out, nil
+}
+
+// literal protects already rendered text from the planner's template pass:
+// every "{{" becomes a template that prints "{{".
+func literal(text string) string {
+	return strings.ReplaceAll(text, "{{", `{{"{{"}}`)
 }

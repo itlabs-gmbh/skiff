@@ -13,7 +13,7 @@ var testData = cap.TemplateData{VM: "vm1", BrokerURL: "http://127.0.0.1:7777", P
 
 func TestGuestConfigRendersClaude(t *testing.T) {
 	p := mustParse(t, full, "test")
-	c, err := p.GuestConfig()
+	c, err := p.GuestConfig(testData)
 	if err != nil {
 		t.Fatalf("GuestConfig: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestGuestConfigRendersClaude(t *testing.T) {
 
 func TestGuestConfigOmitsEmptySections(t *testing.T) {
 	p := mustParse(t, "[claude]\n[codex]\n", "test")
-	c, err := p.GuestConfig()
+	c, err := p.GuestConfig(testData)
 	if err != nil {
 		t.Fatalf("GuestConfig: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestGuestConfigOmitsEmptySections(t *testing.T) {
 	}
 	// Without plugins the sync variable stays away, and a user value wins.
 	p = mustParse(t, "[guest.env]\nCLAUDE_CODE_SYNC_PLUGIN_INSTALL = \"0\"\n[claude]\nplugins = [\"a@claude-plugins-official\"]\n", "test")
-	c, _ = p.GuestConfig()
+	c, _ = p.GuestConfig(testData)
 	if c.Guest.Env["CLAUDE_CODE_SYNC_PLUGIN_INSTALL"] != "0" {
 		t.Errorf("user env must win: %v", c.Guest.Env)
 	}
@@ -80,7 +80,7 @@ func TestGuestConfigOmitsEmptySections(t *testing.T) {
 
 func TestGuestConfigClashesWithCapsAreCaught(t *testing.T) {
 	p := mustParse(t, "[claude.mcp.chrome-devtools]\ntype = \"http\"\nurl = \"x\"\n", "test")
-	c, _ := p.GuestConfig()
+	c, _ := p.GuestConfig(testData)
 	other := cap.Cap{Name: "chrome-devtools", Guest: cap.Guest{JSONMerge: []cap.JSONMerge{{Path: ClaudeConfigFile, Key: "mcpServers.chrome-devtools", Value: map[string]any{"type": "http"}}}}}
 	if _, err := guest.Render([]cap.Cap{other, c}, testData); err == nil || !strings.Contains(err.Error(), "profile") {
 		t.Errorf("expected a conflict naming the profile, got %v", err)
@@ -117,11 +117,11 @@ func TestSetupScript(t *testing.T) {
 	}
 }
 
-func TestSetupScriptEmptyWhenNothingToInstall(t *testing.T) {
+func TestSetupScriptAlwaysRebuildsSkills(t *testing.T) {
 	p := mustParse(t, "grants = [\"claude\"]\n[claude.mcp.a]\nurl = \"x\"\n", "test")
 	script, err := p.SetupScript(testData)
-	if err != nil || script != "" {
-		t.Errorf("expected no script, got %q, %v", script, err)
+	if err != nil || !strings.Contains(script, "rm -rf /opt/skiff/skills") || strings.Contains(script, "installing skills") || strings.Contains(script, "apt-get") {
+		t.Errorf("a profile without skills must still remove earlier ones, got %q, %v", script, err)
 	}
 	p = mustParse(t, "[guest]\nsetup = \"echo {{ .VM }}\"\n", "test")
 	script, _ = p.SetupScript(testData)
@@ -136,5 +136,32 @@ func TestToolsAreEmbedded(t *testing.T) {
 	}
 	if !KnownTool("claude") || KnownTool("../profile") || KnownTool("gemini") {
 		t.Error("KnownTool mismatch")
+	}
+}
+
+func TestGuestConfigRendersQuotedTemplatesBeforeEncoding(t *testing.T) {
+	p := mustParse(t, "[claude.settings]\nname = \"{{ printf \\\"%s\\\" .VM }}\"\nliteral = \"keep {{\\\"{{\\\"}} this\"\n[codex.config]\nmodel = \"{{ .VM }}-model\"\n", "test")
+	c, err := p.GuestConfig(testData)
+	if err != nil {
+		t.Fatalf("GuestConfig: %v", err)
+	}
+	plan, err := guest.Render([]cap.Cap{c}, testData)
+	if err != nil {
+		t.Fatalf("guest.Render must not re-evaluate the encoded file: %v", err)
+	}
+	var settings, codex string
+	for _, f := range plan.Files {
+		switch f.Path {
+		case ClaudeSettingsFile:
+			settings = f.Content
+		case CodexConfigFile:
+			codex = f.Content
+		}
+	}
+	if !strings.Contains(settings, `"name": "vm1"`) || !strings.Contains(settings, `"literal": "keep {{ this"`) {
+		t.Errorf("settings:\n%s", settings)
+	}
+	if !strings.Contains(codex, `model = "vm1-model"`) {
+		t.Errorf("codex:\n%s", codex)
 	}
 }

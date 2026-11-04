@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sovyn-eu/skiff/internal/backend/backendtest"
+	"github.com/sovyn-eu/skiff/internal/broker"
 	"github.com/sovyn-eu/skiff/internal/profile"
 	"github.com/sovyn-eu/skiff/internal/runner"
 	"github.com/sovyn-eu/skiff/internal/vm"
@@ -105,8 +106,8 @@ func TestResolveTrustedProfileRequiresTrust(t *testing.T) {
 	if _, err := app.ResolveTrustedProfile(repo, false, true); err != nil {
 		t.Errorf("--trust: %v", err)
 	}
-	if ok, _ := app.isTrusted(repo); !ok {
-		t.Error("--trust must record the file")
+	if _, err := app.ResolveTrustedProfile(repo, false, false); err != nil {
+		t.Errorf("--trust must record the file: %v", err)
 	}
 	if err := app.ProfileTrust(filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Error("trusting a missing file must fail")
@@ -207,7 +208,7 @@ func TestApplyWithoutSetupSkipsInstalls(t *testing.T) {
 		t.Errorf("no grants expected, got %v", set.Caps())
 	}
 	inputs := fake.Inputs("bash -s")
-	if len(inputs) != 2 || strings.Contains(inputs[0], "apt-get") {
+	if len(inputs) != 2 || strings.Contains(inputs[0], "apt-get") || strings.Contains(inputs[0], "skiff_setup") {
 		t.Errorf("expected read and apply only:\n%s", fake.Dump())
 	}
 	if strings.Contains(inputs[1], "skiff-broker") {
@@ -296,4 +297,41 @@ func newTestAppOut(t *testing.T) (*App, *strings.Builder) {
 	t.Helper()
 	out := &strings.Builder{}
 	return New(runner.NewFake(sshOnly), testPaths(t), out, WithBackend(backendtest.New()), WithTunnel(fakeTunnel)), out
+}
+
+func TestSetupRefusedWhileABrokerIsOwned(t *testing.T) {
+	app, fake := newGrantApp(t, &sshScripts{}, vm.Info{Name: "agent1"})
+	release, err := broker.Claim(app.paths.SocketPath("agent1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	p, _ := profile.Parse("[guest]\npackages = [\"jq\"]\n", ".skiff")
+	_, err = app.Apply(context.Background(), "agent1", p, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "open session, tunnel or setup") {
+		t.Fatalf("want refusal while the broker is owned, got %v", err)
+	}
+	if fake.CalledWithSuffix("bash -s") {
+		t.Errorf("nothing should reach the guest:\n%s", fake.Dump())
+	}
+}
+
+func TestApplyChecksConflictsBeforeSetup(t *testing.T) {
+	app, fake := newGrantApp(t, &sshScripts{}, vm.Info{Name: "agent1"})
+	p, _ := profile.Parse("grants = [\"claude\"]\n[guest]\npackages = [\"jq\"]\n[guest.env]\nANTHROPIC_BASE_URL = \"http://x\"\n", ".skiff")
+	_, err := app.Apply(context.Background(), "agent1", p, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "ANTHROPIC_BASE_URL") {
+		t.Fatalf("want the env clash, got %v", err)
+	}
+	if fake.CalledWithSuffix("bash -s") {
+		t.Errorf("the clash must be found before the setup runs:\n%s", fake.Dump())
+	}
+}
+
+func TestResolveProfileValidatesTheDefaultAlone(t *testing.T) {
+	app, _ := newGrantApp(t, &sshScripts{})
+	writeFile(t, app.paths.ProfilePath(), "[claude]\nplugins = [\"x@missing\"]\n")
+	if _, err := app.ResolveProfile(filepath.Join(t.TempDir(), "none"), false); err == nil || !strings.Contains(err.Error(), "not declared") {
+		t.Errorf("the default alone must be validated as a whole, got %v", err)
+	}
 }

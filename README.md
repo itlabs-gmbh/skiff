@@ -242,7 +242,9 @@ and `revoke` keep it. The setup does not run, because it takes minutes and
 rarely changes; `--setup` runs it again, in the same order as `new`:
 packages, tools, skills, then your `setup` script. Skills are rebuilt from
 scratch then, so one dropped from the profile disappears; packages that were
-installed stay.
+installed stay. The setup must not see the broker, so `apply --setup`
+refuses a VM with an open session or tunnel: close them first. A session
+started during the setup waits for it to end.
 
 | Change in `.skiff`                         | Command                      |
 |--------------------------------------------|------------------------------|
