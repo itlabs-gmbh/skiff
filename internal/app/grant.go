@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sovyn-eu/skiff/internal/cap"
 	"github.com/sovyn-eu/skiff/internal/config"
 	"github.com/sovyn-eu/skiff/internal/grant"
 	"github.com/sovyn-eu/skiff/internal/guest"
+	"github.com/sovyn-eu/skiff/internal/intercept"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -160,6 +162,10 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 	if err != nil {
 		return err
 	}
+	plan, rotation, err := a.withIntercept(plan, name, caps, set)
+	if err != nil {
+		return err
+	}
 	if err := a.backend.Ready(ctx); err != nil {
 		return err
 	}
@@ -180,6 +186,47 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 	}
 	if _, err := a.sshScript(ctx, name, script); err != nil {
 		return fmt.Errorf("apply guest configuration to %s: %w", name, err)
+	}
+	return a.commitIntercept(name, rotation)
+}
+
+// withIntercept adds interception to the plan when a granted capability
+// declares intercept routes. A CA that must be created or grown is only
+// prepared: the guest trusts the current and the next certificate, and
+// commitIntercept writes the next one once the guest has been updated, so a
+// failed update leaves the broker on the CA the guest still trusts. Only
+// certificates go into the plan; the key stays in the VM's state.
+func (a *App) withIntercept(plan guest.Plan, name string, caps cap.Set, set grant.Set) (guest.Plan, *intercept.Rotation, error) {
+	hosts := caps.InterceptHosts(set.Caps())
+	if len(hosts) == 0 {
+		return plan, nil, nil
+	}
+	dir, err := a.grantStore().InterceptDir(name)
+	if err != nil {
+		return guest.Plan{}, nil, err
+	}
+	rotation, err := intercept.Prepare(dir, hosts, time.Now)
+	if err != nil {
+		return guest.Plan{}, nil, err
+	}
+	plan, err = plan.WithIntercept(hosts, rotation.TrustPEM())
+	if err != nil {
+		return guest.Plan{}, nil, err
+	}
+	return plan, rotation, nil
+}
+
+// commitIntercept makes a prepared CA the broker's, after the guest trusts it.
+func (a *App) commitIntercept(name string, rotation *intercept.Rotation) error {
+	if rotation == nil {
+		return nil
+	}
+	issued, err := rotation.Commit()
+	if err != nil {
+		return fmt.Errorf("save the intercept CA of %s: %w", name, err)
+	}
+	if issued {
+		a.printf("issued an intercept CA for %s\n", name)
 	}
 	return nil
 }

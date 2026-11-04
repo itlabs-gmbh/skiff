@@ -2,7 +2,7 @@ BINARY := skiff
 GOFLAGS ?=
 
 
-.PHONY: build install test cover lint e2e clean
+.PHONY: build install test cover lint e2e e2e-intercept clean
 
 build:
 	go build $(GOFLAGS) -o bin/$(BINARY) ./cmd/$(BINARY)
@@ -27,6 +27,9 @@ e2e: build
 	  && ./bin/$(BINARY) ssh e2e-smoke uname -a \
 	  && ./bin/$(BINARY) ls; status=$$?; \
 	./bin/$(BINARY) rm e2e-smoke; exit $$status
+
+e2e-intercept: build
+	scripts/e2e-intercept.sh ./bin/$(BINARY)
 
 clean:
 	rm -rf bin coverage.out

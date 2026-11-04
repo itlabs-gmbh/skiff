@@ -1,0 +1,25 @@
+# A placeholder managed identity for the Azure CLI and SDKs; use it together
+# with azure.toml, which injects the real tokens.
+#
+# az login --identity (and DefaultAzureCredential) fetch tokens from the
+# endpoint in IDENTITY_ENDPOINT, as on Azure App Service. This capability
+# answers with a static JWT that names your tenant, object id and user but has
+# no valid signature: az reads those claims without verifying them, Azure
+# rejects the token, and the broker replaces it on every intercepted request.
+# It holds no secret.
+#
+#   examples/caps/azure-identity.sh > ~/.skiff/azure-identity.json
+#
+# Regenerate the file when the Mac's az login moves to another user or
+# tenant. If it is missing, az in the guest reports "None, None".
+
+name = "azure-identity"
+description = "placeholder Azure managed identity for az login --identity"
+
+[exec]
+command = "sh"
+args = ["-c", "cat \"$HOME/.skiff/azure-identity.json\""]
+
+[guest.env]
+IDENTITY_ENDPOINT = "{{ .BrokerURL }}/azure-identity"
+IDENTITY_HEADER = "{{ .PseudoToken }}"

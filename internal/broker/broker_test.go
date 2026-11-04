@@ -253,10 +253,10 @@ func TestDenyUnknownAndUngranted(t *testing.T) {
 
 func TestUnsafePathRejectsBackslashes(t *testing.T) {
 	u := &url.URL{Path: `/github/org/repo\..\x`}
-	if unsafePath(u) == "" {
+	if unsafePath(u, false) == "" {
 		t.Errorf("backslashes must be rejected")
 	}
-	if unsafePath(&url.URL{Path: "/claude/v1/messages"}) != "" {
+	if unsafePath(&url.URL{Path: "/claude/v1/messages"}, false) != "" {
 		t.Errorf("plain paths must pass")
 	}
 }

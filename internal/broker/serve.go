@@ -15,6 +15,10 @@ import (
 // shutdownGrace is how long in-flight requests get when the tunnel closes.
 const shutdownGrace = 2 * time.Second
 
+// idleTimeout closes kept-alive connections that wait for their next
+// request, so idle guest connections do not pile up on the Mac.
+const idleTimeout = 2 * time.Minute
+
 // Alive reports whether a broker already answers on the socket.
 func Alive(socketPath string) bool {
 	conn, err := net.DialTimeout("unix", socketPath, 200*time.Millisecond)
@@ -90,7 +94,7 @@ func Listen(socketPath string) (net.Listener, error) {
 
 // Serve runs h on ln until ctx is cancelled, then drains briefly.
 func Serve(ctx context.Context, ln net.Listener, h http.Handler) error {
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 30 * time.Second}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: idleTimeout}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	select {

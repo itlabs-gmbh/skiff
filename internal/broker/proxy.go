@@ -24,7 +24,7 @@ var alwaysKeep = []string{"Content-Type", "Content-Length", "Content-Encoding", 
 func (b *Broker) newProxy(c cap.Cap, route *cap.Route) (http.Handler, error) {
 	raw, headers := c.Proxy.Upstream, c.Proxy.Headers
 	if route != nil {
-		raw, headers = route.Upstream, route.Headers
+		raw, headers = route.UpstreamURL(), route.Headers
 	}
 	upstream, err := url.Parse(raw)
 	if err != nil {
@@ -38,6 +38,10 @@ func (b *Broker) newProxy(c cap.Cap, route *cap.Route) (http.Handler, error) {
 			r.SetURL(upstream)
 			r.Out.URL.Path = joinPath(upstream.Path, r.In.URL.Path)
 			r.Out.URL.RawPath = ""
+			if route != nil && route.Intercept {
+				// cap lint guarantees the upstream has no base path.
+				r.Out.URL.Path, r.Out.URL.RawPath = r.In.URL.Path, r.In.URL.RawPath
+			}
 			r.Out.Host = upstream.Host
 			filterHeaders(r.Out.Header, c.Proxy)
 			// Rendered credentials travel in the context so they are set

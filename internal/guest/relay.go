@@ -52,6 +52,11 @@ func isRelayUnit(p string) bool {
 	return p == RelaySocketUnit || p == RelayServiceUnit
 }
 
+// isReserved reports paths skiff writes itself, which no cap may touch.
+func isReserved(p string) bool {
+	return isRelayUnit(p) || isInterceptFile(p) || p == InterceptCAFile+".new"
+}
+
 // writeRelay installs and starts the relay.
 func writeRelay(b *strings.Builder) {
 	writeFile(b, RelaySocketUnit, "0644", []byte(relaySocket()))

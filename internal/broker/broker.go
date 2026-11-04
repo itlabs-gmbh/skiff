@@ -19,11 +19,19 @@ import (
 
 	"github.com/sovyn-eu/skiff/internal/cap"
 	"github.com/sovyn-eu/skiff/internal/grant"
+	"github.com/sovyn-eu/skiff/internal/intercept"
 )
 
 // SecretResolver resolves cap secret references.
 type SecretResolver interface {
 	Resolve(ctx context.Context, ref string) (string, error)
+}
+
+// CASource yields the VM's current intercept CA, or nil when it has none.
+// It is consulted per handshake, so a CA that a grant creates or re-issues
+// while the tunnel is up applies without a restart.
+type CASource interface {
+	Current() (*intercept.Authority, error)
 }
 
 // GrantSource returns the VM's current grants; it is consulted per request so
@@ -46,6 +54,9 @@ type Broker struct {
 	Warn func(string)
 	// Transport overrides the upstream transport (tests).
 	Transport http.RoundTripper
+	// CA yields the VM's intercept CA for TLS on intercept routes; nil
+	// disables interception and leaves the listener untouched.
+	CA CASource
 	// Now is the audit clock.
 	Now func() time.Time
 
@@ -123,7 +134,9 @@ func (b *Broker) serve(w http.ResponseWriter, r *http.Request) {
 // dispatch routes /<cap>/<rest>, or a request for a host a proxy route
 // claims, and enforces grants.
 func (b *Broker) dispatch(w http.ResponseWriter, r *http.Request) decision {
-	if reason := unsafePath(r.URL); reason != "" {
+	// Intercepted requests are forwarded with their exact path to the root of
+	// their own host, so percent-encoding cannot change where they go.
+	if reason := unsafePath(r.URL, r.TLS != nil); reason != "" {
 		writeError(w, http.StatusBadRequest, reason, "")
 		return decision{status: http.StatusBadRequest, reason: "unsafe path"}
 	}
@@ -150,7 +163,7 @@ func (b *Broker) dispatch(w http.ResponseWriter, r *http.Request) decision {
 	}
 	r2 := r.Clone(r.Context())
 	r2.URL.Path = t.rest
-	r2.URL.RawPath = ""
+	r2.URL.RawPath = t.rawPath
 	h.ServeHTTP(w, r2)
 	return decision{cap: name, reason: "allow"}
 }
@@ -161,10 +174,15 @@ type target struct {
 	cap   cap.Cap
 	route *cap.Route
 	rest  string
+	// rawPath keeps the encoded form of rest for intercepted requests.
+	rawPath string
 }
 
 // locate resolves the request's target, answering it itself when there is none.
 func (b *Broker) locate(w http.ResponseWriter, r *http.Request) (target, decision, bool) {
+	if r.TLS != nil {
+		return b.locateIntercepted(w, r)
+	}
 	if c, rt, ok := b.Caps.RouteFor(requestHost(r)); ok {
 		return target{cap: c, route: &rt, rest: r.URL.Path}, decision{}, true
 	}
@@ -234,8 +252,8 @@ func (b *Broker) handlerFor(c cap.Cap, route *cap.Route) (http.Handler, error) {
 // encoding differently), no backslashes (some servers treat them as
 // separators) or NUL, no dot segments that could climb out of the base path,
 // no empty segments, and no difference from its cleaned form.
-func unsafePath(u *url.URL) string {
-	if strings.Contains(u.EscapedPath(), "%") || strings.Contains(u.RawPath, "%") {
+func unsafePath(u *url.URL, allowEncoded bool) string {
+	if !allowEncoded && (strings.Contains(u.EscapedPath(), "%") || strings.Contains(u.RawPath, "%")) {
 		return "percent-encoded characters are not allowed in capability paths"
 	}
 	if strings.ContainsAny(u.Path, "\\\x00") {
@@ -276,8 +294,17 @@ func (b *Broker) audit(r *http.Request, d decision, status int) {
 		now = b.Now
 	}
 	// %q keeps a decoded newline in the path from forging a log line.
-	_, err := fmt.Fprintf(log, "%s vm=%s cap=%s %s %s %q %d\n",
-		now().UTC().Format(time.RFC3339), b.VM, orDash(d.cap), d.reason, r.Method, r.URL.Path, status)
+	host := ""
+	if r.TLS != nil {
+		host = fmt.Sprintf(" host=%q", strings.ToLower(r.TLS.ServerName))
+	}
+	_, err := fmt.Fprintf(log, "%s vm=%s cap=%s %s %s %q %d%s\n",
+		now().UTC().Format(time.RFC3339), b.VM, orDash(d.cap), d.reason, r.Method, r.URL.Path, status, host)
+	b.auditFailed(err)
+}
+
+// auditFailed warns once that the audit log is no longer written.
+func (b *Broker) auditFailed(err error) {
 	if err != nil {
 		b.warnOnce.Do(func() {
 			if b.Warn != nil {

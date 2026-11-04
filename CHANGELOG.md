@@ -9,6 +9,34 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.2.0] - 2026-11-04
+
+Capabilities now also serve clients that insist on `https://` to fixed hosts,
+such as the Azure CLI, without a credential in the VM. Nothing changes for
+existing capabilities; no `skiff prepare` or new VMs are needed, and an
+intercept capability takes effect with the next `skiff grant`.
+
+### Added
+
+- **Intercept routes for HTTPS-only clients.** A proxy route with
+  `intercept = true` lets clients that insist on `https://` to a fixed host
+  (the Azure CLI and SDKs, for example) use a capability without a credential
+  in the VM. The guest resolves the host to the broker, trusts a per-VM CA
+  whose key stays on the Mac, and the broker injects the capability's headers.
+  Hosts are listed by name; revoke removes hosts entry, relay socket and CA.
+- **Azure example capabilities.** `examples/caps/azure.toml` and
+  `azure-identity.toml` run `az login --identity`, ARM, Graph and, by name,
+  Key Vaults and storage accounts with tokens minted by `az` on the Mac; the
+  guest only holds a placeholder.
+- `make e2e-intercept` tests intercept routes against a real VM.
+
+### Changed
+
+- Broker connections that stay idle between requests are closed after two
+  minutes.
+- A connection to the broker that sends nothing for 10 seconds is closed
+  (it was 30); the broker reads the first byte to tell TLS from HTTP.
+
 ## [0.1.1] - 2026-10-30
 
 The first release under `github.com/sovyn-eu/skiff`. Reinstall from the new
@@ -217,7 +245,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sovyn-eu/skiff/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sovyn-eu/skiff/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/sovyn-eu/skiff/releases/tag/v0.0.1
