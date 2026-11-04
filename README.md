@@ -258,7 +258,10 @@ refused until then.
 | profile dropped altogether                 | `skiff apply agent1 --clear` |
 
 Grants are only ever added by `apply`; withdrawing one is a deliberate
-`revoke`. `--clear` removes everything the profile wrote and forgets it,
+`revoke`. `--grant CAP` adds a capability on top of the profile's, as on
+`new`. If the setup fails during `skiff new`, the VM keeps running without
+its profile and grants, and the error names the command that finishes it,
+e.g. `skiff apply agent1 --setup --grant github`. `--clear` removes everything the profile wrote and forgets it,
 grants included among the things it leaves alone. Nothing restarts: the files are written over ssh, Claude Code
 reads plugins at its next session start, Codex its config at its next start.
 

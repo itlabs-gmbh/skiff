@@ -7,7 +7,20 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `skiff apply --grant CAP` grants capabilities on top of the profile's, as
+  `skiff new --grant` does.
+
+### Fixed
+
+- `skiff new --json` printed the output of the profile's setup script, and
+  of an image build on first use, to stdout before the JSON, so the JSON
+  could not be parsed. Commands skiff runs now write to stderr whenever
+  skiff's own stdout carries `--json` output.
+- When the setup failed during `skiff new`, the `--grant` capabilities were
+  lost, and `skiff apply` had no way to grant them again. The error now names
+  the command that finishes the VM (`skiff apply NAME --setup --grant ...`).
 
 ## [0.4.0] - 2026-11-04
 
