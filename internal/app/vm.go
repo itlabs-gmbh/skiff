@@ -7,6 +7,7 @@ import (
 
 	"github.com/sovyn-eu/skiff/internal/config"
 	"github.com/sovyn-eu/skiff/internal/profile"
+	"github.com/sovyn-eu/skiff/internal/shquote"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -83,7 +84,8 @@ func (a *App) NewVM(ctx context.Context, spec vm.Spec, prof *profile.Profile) (V
 	case prof != nil && !prof.IsZero():
 		set, err := a.Apply(ctx, info.Name, *prof, spec.Grants, true)
 		if err != nil {
-			return info, err
+			return info, fmt.Errorf("%w\n  %s is running without its profile and grants; finish it with: %s",
+				err, info.Name, applyRetry(info.Name, spec.Grants))
 		}
 		info.Grants = set.Caps()
 	case len(spec.Grants) > 0:
@@ -94,6 +96,17 @@ func (a *App) NewVM(ctx context.Context, spec vm.Spec, prof *profile.Profile) (V
 		info.Grants = set.Caps()
 	}
 	return info, nil
+}
+
+// applyRetry is the command that completes a VM whose profile failed during
+// `skiff new`: Apply stores the grants only after the setup, so they have to
+// be passed again.
+func applyRetry(name string, grants []string) string {
+	cmd := "skiff apply " + shquote.Quote(name) + " --setup"
+	for _, g := range grants {
+		cmd += " --grant " + shquote.Quote(g)
+	}
+	return cmd
 }
 
 // StartVM boots a stopped microVM.

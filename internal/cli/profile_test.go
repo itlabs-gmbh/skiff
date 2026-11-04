@@ -95,6 +95,10 @@ func TestApplyAndProfileCommands(t *testing.T) {
 	if !strings.Contains(out, "vm1 may now use: claude") || !fake.CalledWithSuffix("vm1.skiff -- bash -s") {
 		t.Errorf("apply output:\n%s\n%s", out, fake.Dump())
 	}
+	out, _, err = runIn(t, home, "", "apply", "vm1", "--profile", path, "--grant", "github")
+	if err != nil || !strings.Contains(out, "vm1 may now use: claude, github") {
+		t.Errorf("apply --grant: %v\n%s", err, out)
+	}
 	out, _, err = runIn(t, home, "", "profile", "show", "--vm", "vm1", "--render")
 	if err != nil || !strings.Contains(out, "vcpus = 4") || !strings.Contains(out, "enabledPlugins") {
 		t.Errorf("profile show --vm: %v\n%s", err, out)
