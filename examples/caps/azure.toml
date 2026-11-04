@@ -8,7 +8,7 @@
 #
 #   az login                                         # once, on the Mac
 #   cp examples/caps/azure.toml examples/caps/azure-identity.toml ~/.skiff/caps/
-#   examples/caps/azure-identity.sh > ~/.skiff/azure-identity.json
+#   sh examples/caps/azure-identity.sh               # writes ~/.skiff/azure-identity.json
 #   skiff grant agent1 azure azure-identity
 #   # in the guest, after installing az:
 #   az login --identity && az group list -o table

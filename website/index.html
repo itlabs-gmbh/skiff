@@ -128,7 +128,7 @@ $ skiff ssh dev uname -a
           </div>
           <div class="card">
             <h3 class="small">Any tool, one TOML file</h3>
-            <p>The broker knows three primitives: a header-injecting proxy, a bridge for MCP servers that run on your Mac, and an external program. Claude Code and GitHub ship built in. Codex, Gemini CLI or your own MCP server are a capability file in <code>~/.skiff/caps</code>, shareable by URL. <a class="link" href="capabilities.html">How it works</a></p>
+            <p>The broker knows three primitives: a header-injecting proxy, a bridge for MCP servers that run on your Mac, and an external program. Claude Code and GitHub ship built in. Codex, Gemini CLI or your own MCP server are a capability file in <code>~/.skiff/caps</code>, shareable by URL; CLIs that only speak HTTPS to their own hosts, such as <code>az</code>, get the same through intercept routes. <a class="link" href="capabilities.html">How it works</a></p>
             <div class="cmd" data-copy="skiff cap init codex">
               <span class="prompt" aria-hidden="true">$</span>
               <span class="text">skiff cap init codex</span>

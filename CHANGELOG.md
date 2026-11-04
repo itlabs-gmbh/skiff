@@ -7,7 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `examples/caps/azure-identity.sh` writes `~/.skiff/azure-identity.json`
+  itself and replaces it only on success. Redirected with `>`, a missing
+  tool or an `az` that was not logged in left an empty file behind, and
+  `az login --identity` in the guest failed with "None, None". It now also
+  checks for `az` and `jq` first and handles a service principal login.
 
 ## [0.2.0] - 2026-11-04
 
