@@ -13,8 +13,9 @@ Nothing yet.
 
 Azure DevOps without a PAT, through the intercept routes of 0.2.0. skiff
 itself is unchanged; the docs now also say that a running broker keeps the
-capability files it started with, so a new or replaced file needs a fresh
-`skiff ssh` or `skiff tunnel`.
+capability files it started with. After adding or replacing one, close the
+VM's existing sessions and tunnels, then start a new `skiff ssh` or
+`skiff tunnel`.
 
 ### Added
 
