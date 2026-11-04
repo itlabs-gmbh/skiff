@@ -7,6 +7,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-11-04
+
+Azure DevOps without a PAT, through the intercept routes of 0.2.0. skiff
+itself is unchanged; the docs now also say that a running broker keeps the
+capability files it started with. After adding or replacing one, close the
+VM's existing sessions and tunnels, then start a new `skiff ssh` or
+`skiff tunnel`.
+
 ### Added
 
 - **Azure DevOps example capability.** `examples/caps/azure-devops.toml`
@@ -267,7 +277,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sovyn-eu/skiff/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sovyn-eu/skiff/compare/v0.1.0...v0.1.1
