@@ -216,6 +216,21 @@ downloads that GitHub redirects to other hosts (`gh release download`) do not
 work through the broker. Route hosts must be public DNS names, never an IP or
 `localhost`, so no capability can catch the requests of another.
 
+Some clients insist on `https://` to fixed hosts and cannot be pointed at the
+broker: the Azure CLI and SDKs, for example. A proxy route with
+`intercept = true` serves them. While it is granted, the guest's `/etc/hosts`
+sends the route's host to `127.77.0.1`, where a systemd socket relays port 443
+into the tunnel, and the guest trusts a CA of its own whose key stays on the
+Mac (`~/.skiff/vms/<vm>/intercept/ca.pem`). The broker completes the TLS
+handshake only for intercept routes of granted capabilities, requires the
+`Host` header to match the server name, and forwards with the capability's
+headers, so the guest's placeholder never reaches the upstream. The CA is
+name-constrained to the intercepted hosts and their subdomains, and a revoke
+removes hosts entry, socket and CA from the guest. Hosts are listed by name;
+there are no wildcards. `examples/caps/azure.toml` with `azure-identity.toml`
+runs `az` this way, and `make e2e-intercept` tests the mechanism against a
+real VM. Design and trade-offs: `docs/design/credential-intercept.md`.
+
 The embedded `claude` capability points `ANTHROPIC_BASE_URL` at the broker and
 sets `CLAUDE_CODE_OAUTH_TOKEN` to the placeholder, so the unmodified Claude Code
 binary in the guest sends exactly the headers of a normal subscription login.
@@ -275,12 +290,14 @@ make test     # unit tests (with -race)
 make cover    # coverage summary
 make lint     # gofmt, go vet
 make e2e      # boots a real VM (requires skiff prepare), cleans up afterwards
+make e2e-intercept  # intercept routes against a real VM and httpbin.org
 ```
 
 Layout: `cmd/skiff` (entry point), `internal/cli` (cobra commands),
 `internal/app` (workflows), `internal/backend` (the interface, the `container`
 backend and an in-memory fake for tests), `internal/host` (host facts),
-`internal/broker` (per-VM capability broker), `internal/cap` (capability files,
+`internal/broker` (per-VM capability broker), `internal/intercept` (per-VM
+intercept CA), `internal/cap` (capability files,
 embedded defaults), `internal/grant` (per-VM policy), `internal/guest`
 (guest provisioning scripts), `internal/secret` (Keychain/env/cmd/file resolver),
 `internal/vm` (spec validation), `internal/sshcfg` (ssh_config rendering).

@@ -1,0 +1,64 @@
+# The Azure CLI and Azure SDKs in the guest, without a credential in the VM.
+#
+# az talks https:// to fixed Azure hosts and refuses bearer tokens over plain
+# HTTP, so this capability uses intercept routes: the guest resolves the
+# hosts below to the broker, which terminates TLS with the VM's own CA and
+# sets a real token minted by the az CLI on the Mac. The guest only holds a
+# placeholder from azure-identity.toml, which Azure rejects.
+#
+#   az login                                         # once, on the Mac
+#   cp examples/caps/azure.toml examples/caps/azure-identity.toml ~/.skiff/caps/
+#   examples/caps/azure-identity.sh > ~/.skiff/azure-identity.json
+#   skiff grant agent1 azure azure-identity
+#   # in the guest, after installing az:
+#   az login --identity && az group list -o table
+#
+# The VM can do what your az login can do. Prefer a dedicated identity: log
+# in once with AZURE_CONFIG_DIR=$HOME/.azure-skiff az login (a service
+# principal with narrow roles is best) and prefix every az below with
+# AZURE_CONFIG_DIR=$HOME/.azure-skiff. Whatever the VM may read reaches it,
+# Key Vault secret values and storage keys included.
+#
+# Data planes have one host per resource. List the ones the VM may use by
+# name, which also keeps it away from the others. There are no wildcards on
+# purpose: under a suffix where others can host content (*.azurewebsites.net)
+# the token would go to them.
+#
+# The broker caches each token for 60 seconds; a refresh runs az once.
+
+name = "azure"
+description = "Azure CLI and SDKs via intercept routes; tokens from az on the Mac"
+
+# Also reachable as {{ .BrokerURL }}/azure/ for clients that take a base URL.
+[proxy]
+upstream = "https://management.azure.com"
+[proxy.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource https://management.core.windows.net/ --query accessToken -o tsv\" }}"
+
+# Azure Resource Manager: everything az does with resources.
+[[proxy.routes]]
+host = "management.azure.com"
+intercept = true
+[proxy.routes.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource https://management.core.windows.net/ --query accessToken -o tsv\" }}"
+
+# Microsoft Graph: az ad, role assignments by user.
+[[proxy.routes]]
+host = "graph.microsoft.com"
+intercept = true
+[proxy.routes.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource https://graph.microsoft.com/ --query accessToken -o tsv\" }}"
+
+# A Key Vault (az keyvault secret ...): one route per vault.
+# [[proxy.routes]]
+# host = "my-vault.vault.azure.net"
+# intercept = true
+# [proxy.routes.headers]
+# Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource https://vault.azure.net --query accessToken -o tsv\" }}"
+
+# A storage account's blobs (az storage blob ... --auth-mode login).
+# [[proxy.routes]]
+# host = "myaccount.blob.core.windows.net"
+# intercept = true
+# [proxy.routes.headers]
+# Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource https://storage.azure.com/ --query accessToken -o tsv\" }}"

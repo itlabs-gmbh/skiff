@@ -7,7 +7,24 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Intercept routes for HTTPS-only clients.** A proxy route with
+  `intercept = true` lets clients that insist on `https://` to a fixed host
+  (the Azure CLI and SDKs, for example) use a capability without a credential
+  in the VM. The guest resolves the host to the broker, trusts a per-VM CA
+  whose key stays on the Mac, and the broker injects the capability's headers.
+  Hosts are listed by name; revoke removes hosts entry, relay socket and CA.
+- **Azure example capabilities.** `examples/caps/azure.toml` and
+  `azure-identity.toml` run `az login --identity`, ARM, Graph and, by name,
+  Key Vaults and storage accounts with tokens minted by `az` on the Mac; the
+  guest only holds a placeholder.
+- `make e2e-intercept` tests intercept routes against a real VM.
+
+### Changed
+
+- Broker connections that stay idle between requests are closed after two
+  minutes.
 
 ## [0.1.1] - 2026-10-30
 

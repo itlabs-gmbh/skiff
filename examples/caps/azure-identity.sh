@@ -1,8 +1,9 @@
 #!/bin/sh
-# Spike: print a static managed-identity response for the Mac's az login.
-# The JWT carries tenant, object id and UPN only and has no valid signature;
-# it never expires because the broker injects a fresh real token anyway.
-#   make-placeholder.sh > placeholder.json
+# Prints the managed-identity response azure-identity.toml serves: a JWT for
+# the Mac's az login with tenant, object id and UPN, no valid signature and
+# an expiry in 2100, since the broker injects a fresh real token on every
+# intercepted request.
+#   examples/caps/azure-identity.sh > ~/.skiff/azure-identity.json
 set -eu
 
 # 2100-01-01T00:00:00Z

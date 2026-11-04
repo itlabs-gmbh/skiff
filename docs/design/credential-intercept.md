@@ -1,8 +1,9 @@
 # Design: credentials for HTTPS-only clients (broker intercept)
 
-Status: phase 1 implemented, 2026-11-04 (e2e: az 2.92 in an Ubuntu 24.04
+Status: phases 1 and 2 implemented, 2026-11-04 (e2e: az 2.92 in an Ubuntu 24.04
 arm64 guest against ARM, Graph and Key Vault through the broker alone).
-Based on the three Azure spikes in `spike/azure/` (host az 2.86).
+Based on three Azure spikes (host az 2.86), kept in commit 28e8b7f
+(`spike/azure/`, results in its README) and removed afterwards.
 
 Decision sought: the broker learns to terminate TLS for hosts a capability
 declares, so that clients which insist on `https://` to fixed hosts get
@@ -29,7 +30,7 @@ Mac) works, but puts a real access token (60–90 min, no refresh token) into
 the guest: replayable from anywhere, not revocable before it expires,
 unaudited.
 
-Spike 2 (`spike/azure/mitm/`) showed the alternative end to end: a proxy on
+Spike 2 (a stand-alone TLS-intercepting proxy) showed the alternative end to end: a proxy on
 the Mac terminates TLS for allow-listed Azure hosts with a name-constrained
 CA, swaps a placeholder JWT for a real token and forwards the request. ARM,
 Graph and the Key Vault data plane worked at ~1 s per az command. The
@@ -240,7 +241,8 @@ cluster CA), anything over SSH.
    endpoint, the placeholder generator next to it, docs on adding Key Vaults
    and storage accounts by name and on a dedicated identity
    (`AZURE_CONFIG_DIR` or a service principal). It doubles as the manual
-   acceptance test for phase 1. Delete `spike/azure/` afterwards.
+   acceptance test for phase 1. Done: `azure.toml`, `azure-identity.toml`
+   and `azure-identity.sh`; the spikes are deleted.
 3. **Azure DevOps via Entra tokens** as an example user capability; evaluate
    whether `github` should move to intercept.
 4. **AWS and GCP** (SigV4 port, credentials and metadata endpoints),
@@ -255,10 +257,13 @@ cluster CA), anything over SSH.
   CGNAT, IPv6 ULA), revoke during an open TLS connection → next request 403.
 - Guest script: golden tests like the existing ones for the CA step, hosts
   block and socket units, including revoke.
-- e2e (`make e2e`): a VM with an intercept route to a public echo-free test
-  upstream; curl through the hosts mapping; placeholder never visible in the
-  upstream request.
-- Manual: the spike's Azure checklist (`spike/azure/README.md`).
+- e2e (`make e2e-intercept`, `scripts/e2e-intercept.sh`): a VM with an
+  intercept route to httpbin.org, which echoes the request headers; the
+  echo must show the value injected on the Mac (a random test string, never
+  a credential) instead of the placeholder, other HTTPS must be untouched
+  and a revoke must restore the direct path.
+- Manual: the Azure examples as documented in `examples/caps/azure.toml`
+  (az login --identity, ARM, Graph incl. `%40` paths, Key Vault, revoke).
 
 ## Open questions
 
