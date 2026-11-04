@@ -21,11 +21,15 @@ CAP_FILE=$CAPS_DIR/$CAP.toml
 SKIFF_E2E_SECRET=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 export SKIFF_E2E_SECRET
 
+# Cleanup only touches what this run created: a VM or cap file of the same
+# name that existed before is left alone.
 tunnel_pid=
+created_vm=
+created_cap=
 cleanup() {
-	[ -n "$tunnel_pid" ] && kill "$tunnel_pid" 2>/dev/null || true
-	"$SKIFF" rm "$VM" >/dev/null 2>&1 || true
-	rm -f "$CAP_FILE"
+	if [ -n "$tunnel_pid" ]; then kill "$tunnel_pid" 2>/dev/null || true; fi
+	if [ -n "$created_vm" ]; then "$SKIFF" rm "$VM" >/dev/null 2>&1 || true; fi
+	if [ -n "$created_cap" ]; then rm -f "$CAP_FILE"; fi
 }
 trap cleanup EXIT INT TERM
 
@@ -37,7 +41,11 @@ fail() {
 if [ -e "$CAP_FILE" ]; then
 	fail "$CAP_FILE exists; remove it first"
 fi
+if "$SKIFF" inspect "$VM" >/dev/null 2>&1; then
+	fail "a VM named $VM exists; remove it first"
+fi
 mkdir -p "$CAPS_DIR"
+created_cap=1
 cat > "$CAP_FILE" <<EOF
 name = "$CAP"
 description = "e2e test of intercept routes (echo service, test value only)"
@@ -55,6 +63,7 @@ EOF
 
 "$SKIFF" cap lint "$CAP"
 "$SKIFF" new "$VM" --mem 1024 >/dev/null
+created_vm=1
 "$SKIFF" grant "$VM" "$CAP"
 "$SKIFF" tunnel "$VM" >/dev/null 2>&1 &
 tunnel_pid=$!
