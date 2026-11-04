@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sovyn-eu/skiff/internal/cap"
 	"github.com/sovyn-eu/skiff/internal/config"
 	"github.com/sovyn-eu/skiff/internal/grant"
 	"github.com/sovyn-eu/skiff/internal/guest"
+	"github.com/sovyn-eu/skiff/internal/intercept"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -160,6 +162,9 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 	if err != nil {
 		return err
 	}
+	if plan, err = a.withIntercept(plan, name, caps, set); err != nil {
+		return err
+	}
 	if err := a.backend.Ready(ctx); err != nil {
 		return err
 	}
@@ -182,6 +187,28 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 		return fmt.Errorf("apply guest configuration to %s: %w", name, err)
 	}
 	return nil
+}
+
+// withIntercept adds interception to the plan when a granted capability
+// declares intercept routes, creating or growing the VM's CA on the Mac.
+// Only the certificate goes into the plan; the key stays in the VM's state.
+func (a *App) withIntercept(plan guest.Plan, name string, caps cap.Set, set grant.Set) (guest.Plan, error) {
+	hosts := caps.InterceptHosts(set.Caps())
+	if len(hosts) == 0 {
+		return plan, nil
+	}
+	dir, err := a.grantStore().InterceptDir(name)
+	if err != nil {
+		return guest.Plan{}, err
+	}
+	ca, created, err := intercept.LoadOrCreate(dir, hosts, time.Now)
+	if err != nil {
+		return guest.Plan{}, err
+	}
+	if created {
+		a.printf("issued an intercept CA for %s covering %s\n", name, strings.Join(hosts, ", "))
+	}
+	return plan.WithIntercept(hosts, ca.CertPEM())
 }
 
 // sshScript runs a shell script in the guest. The script is streamed to

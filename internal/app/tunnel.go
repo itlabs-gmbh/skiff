@@ -11,6 +11,7 @@ import (
 	"github.com/sovyn-eu/skiff/internal/broker"
 	"github.com/sovyn-eu/skiff/internal/config"
 	"github.com/sovyn-eu/skiff/internal/grant"
+	"github.com/sovyn-eu/skiff/internal/intercept"
 	"github.com/sovyn-eu/skiff/internal/runner"
 	"github.com/sovyn-eu/skiff/internal/secret"
 )
@@ -167,6 +168,12 @@ func (a *App) serveBroker(ctx context.Context, name, socket string) (func(), err
 		Data:    data,
 		Warn:    func(msg string) { a.printf("skiff: warning: %s\n", msg) },
 	}
+	caDir, err := store.InterceptDir(name)
+	if err != nil {
+		_ = audit.Close()
+		return nil, err
+	}
+	b.CA = &intercept.Watcher{Dir: caDir, Now: time.Now}
 	ln, err := broker.Listen(socket)
 	if err != nil {
 		_ = audit.Close()
@@ -176,7 +183,7 @@ func (a *App) serveBroker(ctx context.Context, name, socket string) (func(), err
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := broker.Serve(serveCtx, ln, b.Handler()); err != nil {
+		if err := broker.Serve(serveCtx, b.Listener(ln), b.Handler()); err != nil {
 			a.printf("broker for %s stopped: %v\n", name, err)
 		}
 	}()

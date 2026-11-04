@@ -37,6 +37,16 @@ func (s Store) vmDir(vm string) (string, error) {
 	return filepath.Join(s.Dir, vm), nil
 }
 
+// InterceptDir is where the VM's intercept CA lives. It sits inside the
+// VM's state directory, so Remove, WithFreshState and Prune take it along.
+func (s Store) InterceptDir(vm string) (string, error) {
+	dir, err := s.vmDir(vm)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "intercept"), nil
+}
+
 // Load returns the grants of a VM; a VM without state has none.
 func (s Store) Load(vm string) (Set, error) {
 	dir, err := s.vmDir(vm)

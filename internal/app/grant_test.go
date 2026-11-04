@@ -275,3 +275,77 @@ func TestListIncludesGrants(t *testing.T) {
 		t.Errorf("ListVMs = %+v", vms)
 	}
 }
+
+const interceptCapFile = `name = "cloud"
+description = "test cap with an intercept route"
+[proxy]
+upstream = "https://api.cloud.example"
+[proxy.headers]
+Authorization = "Bearer {{ secret \"env:CLOUD_TOKEN\" }}"
+[[proxy.routes]]
+host = "management.cloud.example"
+intercept = true
+[proxy.routes.headers]
+Authorization = "Bearer {{ secret \"env:CLOUD_TOKEN\" }}"
+`
+
+func TestGrantInterceptCapInstallsCA(t *testing.T) {
+	scripts := &sshScripts{state: "/etc/skiff/manifest\n\n"}
+	app, _ := newGrantApp(t, scripts)
+	if err := os.MkdirAll(app.paths.CapsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.paths.CapsDir(), "cloud.toml"), []byte(interceptCapFile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.Grant(context.Background(), "agent1", []string{"cloud"}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	dir, err := app.grantStore().InterceptDir("agent1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dir, "ca.pem"))
+	if err != nil {
+		t.Fatalf("no CA on the Mac after an intercept grant: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("CA mode = %v", info.Mode().Perm())
+	}
+	apply := scripts.last()
+	decoded := decodeAll(apply)
+	for _, want := range []string{"127.77.0.1 management.cloud.example", "BEGIN CERTIFICATE", "ListenStream=127.77.0.1:443"} {
+		if !strings.Contains(decoded, want) {
+			t.Errorf("apply script should provision %q:\n%s", want, decoded)
+		}
+	}
+	if strings.Contains(apply+decoded, "PRIVATE KEY") {
+		t.Fatal("the CA key must never reach the guest")
+	}
+
+	// Removing the VM's state takes the CA along.
+	if err := app.grantStore().Remove("agent1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ca.pem")); !os.IsNotExist(err) {
+		t.Errorf("CA survived the VM's state: %v", err)
+	}
+}
+
+func TestGrantWithoutInterceptCreatesNoCA(t *testing.T) {
+	scripts := &sshScripts{state: "/etc/skiff/manifest\n\n"}
+	app, _ := newGrantApp(t, scripts)
+	if _, err := app.Grant(context.Background(), "agent1", []string{"claude"}); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := app.grantStore().InterceptDir("agent1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("a grant without intercept routes created %s: %v", dir, err)
+	}
+	if strings.Contains(decodeAll(scripts.last()), "127.77.0.1") {
+		t.Error("intercept provisioned without an intercept grant")
+	}
+}
