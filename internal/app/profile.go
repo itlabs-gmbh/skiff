@@ -190,11 +190,51 @@ func (a *App) Apply(ctx context.Context, name string, p profile.Profile, extra [
 	return set, nil
 }
 
+// ProfileClear removes the profile's configuration from a VM and forgets the
+// stored profile; grants stay. It is the way back for a profile whose
+// sections were all removed, which Apply refuses as "nothing to apply".
+func (a *App) ProfileClear(ctx context.Context, name string) error {
+	if err := vm.ValidateName(name); err != nil {
+		return err
+	}
+	caps, err := a.loadCaps()
+	if err != nil {
+		return err
+	}
+	store := a.grantStore()
+	unlock, err := store.Lock(name)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	stored, err := a.storedProfile(name)
+	if err != nil {
+		return err
+	}
+	if stored == nil {
+		return fmt.Errorf("no profile has been applied to %s", name)
+	}
+	set, err := store.Load(name)
+	if err != nil {
+		return err
+	}
+	if err := a.provision(ctx, name, caps, set, &profile.Profile{}); err != nil {
+		return err
+	}
+	if err := store.RemoveProfile(name); err != nil {
+		return err
+	}
+	a.printf("%s no longer has a profile; grants are unchanged\n", name)
+	return nil
+}
+
 // runSetup streams the profile's setup script into the guest, with its
-// output on the terminal. It owns the VM's broker claim while it runs, so no
-// broker serves the VM: an open session or tunnel is refused, a session
-// started meanwhile waits in standby, and a second setup cannot interleave.
-// That is what keeps a repository's .skiff from reaching credentials.
+// output on the terminal. It owns the VM's broker claim and the agent lock
+// while it runs, so neither a broker nor a forwarded SSH agent reaches the
+// VM: an open session or tunnel is refused, a session started meanwhile gets
+// its broker in standby and no agent until the setup ends, and a second
+// setup cannot interleave. That is what keeps a repository's .skiff from
+// reaching credentials.
 func (a *App) runSetup(ctx context.Context, name string, p profile.Profile) error {
 	data, err := a.templateData(name)
 	if err != nil {
@@ -210,6 +250,15 @@ func (a *App) runSetup(ctx context.Context, name string, p profile.Profile) erro
 	if err := a.ensureSSHConfig(); err != nil {
 		return err
 	}
+	busy := fmt.Errorf("%s has an open session, tunnel or setup; close it before running the setup, which must not see the broker or a forwarded SSH agent", name)
+	releaseAgent, err := a.lockAgent(name, true)
+	if errors.Is(err, errAgentLockBusy) {
+		return busy
+	}
+	if err != nil {
+		return err
+	}
+	defer releaseAgent()
 	socket := a.paths.SocketPath(name)
 	release, err := broker.Claim(socket)
 	if err == nil && broker.Alive(socket) {
@@ -217,7 +266,7 @@ func (a *App) runSetup(ctx context.Context, name string, p profile.Profile) erro
 		err = broker.ErrBusy
 	}
 	if errors.Is(err, broker.ErrBusy) {
-		return fmt.Errorf("%s has an open session, tunnel or setup; close it before running the setup, which must not see the broker", name)
+		return busy
 	}
 	if err != nil {
 		return err

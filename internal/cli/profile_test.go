@@ -118,4 +118,11 @@ func TestApplyAndProfileCommands(t *testing.T) {
 	if _, _, err := runIn(t, home, "", "apply", "vm1", "--no-profile"); err == nil || !strings.Contains(err.Error(), "nothing to apply") {
 		t.Errorf("apply without any profile must refuse, got %v", err)
 	}
+	if _, _, err := runIn(t, home, "", "apply", "vm1", "--clear", "--setup"); err == nil {
+		t.Error("--clear and --setup are exclusive")
+	}
+	out, _, err = runIn(t, home, "", "apply", "vm1", "--clear")
+	if err != nil || !strings.Contains(out, "no longer has a profile") {
+		t.Errorf("apply --clear: %v\n%s", err, out)
+	}
 }

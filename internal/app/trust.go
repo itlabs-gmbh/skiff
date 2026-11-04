@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/sovyn-eu/skiff/internal/profile"
@@ -46,14 +47,15 @@ func untrustedError(path string, p profile.Profile) error {
 }
 
 // trustKey identifies a file by its absolute path and the content it was
-// read with, so what is checked is what gets applied.
+// read with, so what is checked is what gets applied. The path is quoted,
+// so a directory name with a line break cannot forge a second record.
 func trustKey(path string, data []byte) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", path, err)
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]) + " " + abs, nil
+	return hex.EncodeToString(sum[:]) + " " + strconv.Quote(abs), nil
 }
 
 func (a *App) trustedPath() string { return filepath.Join(a.paths.Home, trustedFile) }

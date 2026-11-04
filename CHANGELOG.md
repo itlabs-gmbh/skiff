@@ -7,6 +7,19 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-11-04
+
+One file says what a VM needs. A `.skiff` in a repository and
+`~/.skiff/profile.toml` on the Mac declare size, grants, tools, skills and
+the agents' plugins and MCP servers, and `skiff new` builds the VM from them.
+No `skiff prepare` and no new guest image are needed; existing VMs are
+unchanged until `skiff apply`. `skiff new` now reads both files when they
+exist, so a tool that runs it inside a repository with a `.skiff` gets that
+file's settings; pass `--no-profile` where that is not wanted. A repository
+file is refused until `skiff profile trust` has recorded it.
+
 ### Added
 
 - **Profiles.** A `.skiff` file in a repository and `~/.skiff/profile.toml`
@@ -22,7 +35,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   `skiff apply NAME [--setup]`, `skiff profile show [--vm NAME] [--render]`,
   `skiff profile init [--global]`, `skiff profile lint`, `skiff profile
   trust`; new flags `--profile FILE`, `--no-profile` and `--trust` on `new`
-  and `apply`. The capability name `profile` is reserved.
+  and `apply`, and `apply --clear` to remove a profile's configuration
+  again. The capability name `profile` is reserved.
 
 ## [0.3.0] - 2026-11-04
 
@@ -292,7 +306,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/sovyn-eu/skiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sovyn-eu/skiff/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...v0.2.0

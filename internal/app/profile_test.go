@@ -335,3 +335,88 @@ func TestResolveProfileValidatesTheDefaultAlone(t *testing.T) {
 		t.Errorf("the default alone must be validated as a whole, got %v", err)
 	}
 }
+
+func TestSetupRefusedWhileAnAgentSessionIsOpen(t *testing.T) {
+	app, fake := newGrantApp(t, &sshScripts{}, vm.Info{Name: "agent1"})
+	release, err := app.lockAgent("agent1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	p, _ := profile.Parse("[guest]\npackages = [\"jq\"]\n", ".skiff")
+	_, err = app.Apply(context.Background(), "agent1", p, nil, true)
+	if err == nil || !strings.Contains(err.Error(), "forwarded SSH agent") {
+		t.Fatalf("want refusal while an agent session is open, got %v", err)
+	}
+	if fake.CalledWithSuffix("bash -s") {
+		t.Errorf("nothing should reach the guest:\n%s", fake.Dump())
+	}
+}
+
+func TestAgentSessionRefusedDuringSetup(t *testing.T) {
+	app, fake := newGrantApp(t, &sshScripts{state: "/etc/skiff/manifest\n\n"}, vm.Info{Name: "agent1"})
+	if _, err := app.Grant(context.Background(), "agent1", []string{"ssh-agent"}); err != nil {
+		t.Fatal(err)
+	}
+	release, err := app.lockAgent("agent1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.Reset()
+	err = app.SSH(context.Background(), "agent1", nil)
+	if err == nil || !strings.Contains(err.Error(), "being set up") {
+		t.Fatalf("a session must not forward the agent during a setup, got %v", err)
+	}
+	if len(fake.Calls()) != 0 {
+		t.Errorf("ssh must not run:\n%s", fake.Dump())
+	}
+	release()
+	if err := app.SSH(context.Background(), "agent1", nil); err != nil {
+		t.Fatalf("after the setup: %v", err)
+	}
+	if !strings.Contains(fake.Calls()[len(fake.Calls())-1], " -A ") {
+		t.Errorf("agent forwarding missing:\n%s", fake.Dump())
+	}
+	// The session released its shared hold: a setup may run again.
+	exclusive, err := app.lockAgent("agent1", true)
+	if err != nil {
+		t.Fatalf("the session must release the agent lock: %v", err)
+	}
+	exclusive()
+}
+
+func TestProfileClearRemovesConfigurationAndKeepsGrants(t *testing.T) {
+	scripts := &sshScripts{state: "/etc/skiff/manifest\n\n/root/.claude.json\n\n"}
+	app, fake := newGrantApp(t, scripts, vm.Info{Name: "agent1"})
+	p, _ := profile.Parse("grants = [\"claude\"]\n[claude.mcp.context7]\ntype = \"http\"\nurl = \"x\"\n", ".skiff")
+	if _, err := app.Apply(context.Background(), "agent1", p, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	fake.Reset()
+	if err := app.ProfileClear(context.Background(), "agent1"); err != nil {
+		t.Fatalf("ProfileClear: %v", err)
+	}
+	inputs := fake.Inputs("bash -s")
+	if len(inputs) != 2 || strings.Contains(decodeAll(inputs[1]), "context7") {
+		t.Errorf("the profile's configuration must be gone from the apply script:\n%s", fake.Dump())
+	}
+	if !strings.Contains(decodeAll(inputs[1]), "ANTHROPIC_BASE_URL") {
+		t.Errorf("grants must stay provisioned:\n%s", decodeAll(inputs[1]))
+	}
+	if stored, _ := app.storedProfile("agent1"); stored != nil {
+		t.Error("the stored profile must be forgotten")
+	}
+	if set, _ := app.Grants("agent1"); strings.Join(set.Caps(), ",") != "claude" {
+		t.Errorf("grants changed: %v", set.Caps())
+	}
+	if err := app.ProfileClear(context.Background(), "agent1"); err == nil {
+		t.Error("clearing twice must report that no profile is applied")
+	}
+}
+
+func TestTrustRecordQuotesThePath(t *testing.T) {
+	key, err := trustKey("/tmp/a\nb/.skiff", []byte("x"))
+	if err != nil || strings.Contains(key, "\n") || !strings.Contains(key, `"/tmp/a\nb/.skiff"`) {
+		t.Errorf("trust key must stay on one line: %q, %v", key, err)
+	}
+}

@@ -57,7 +57,7 @@ func unionStrings(a, b []string) []string {
 
 func newApplyCmd(get func() *app.App) *cobra.Command {
 	var flags profileFlags
-	var setup bool
+	var setup, clear bool
 	cmd := &cobra.Command{
 		Use:   "apply NAME",
 		Short: "Apply the profile (./" + profile.RepoFile + " and the machine default) to a running VM",
@@ -65,10 +65,14 @@ func newApplyCmd(get func() *app.App) *cobra.Command {
 it declares (plugins, MCP servers, settings) into the guest, replacing what an
 earlier profile wrote. Grants are only added; revoke by hand what the profile
 no longer lists. With --setup the packages, tools, skills and setup script are
-installed again first, as 'skiff new' does.`,
-		Example: "  skiff apply agent1\n  skiff apply agent1 --setup\n  skiff apply agent1 --profile ../other/.skiff",
+installed again first, as 'skiff new' does. --clear removes the profile's
+configuration from the VM instead and forgets the profile; grants stay.`,
+		Example: "  skiff apply agent1\n  skiff apply agent1 --setup\n  skiff apply agent1 --profile ../other/.skiff\n  skiff apply agent1 --clear",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if clear {
+				return get().ProfileClear(cmd.Context(), args[0])
+			}
 			prof, err := flags.resolve(get())
 			if err != nil {
 				return err
@@ -79,6 +83,9 @@ installed again first, as 'skiff new' does.`,
 	}
 	flags.add(cmd)
 	cmd.Flags().BoolVar(&setup, "setup", false, "run the profile's installs (packages, tools, skills, setup) again")
+	cmd.Flags().BoolVar(&clear, "clear", false, "remove the profile's configuration from the VM and forget the profile (grants stay)")
+	cmd.MarkFlagsMutuallyExclusive("clear", "setup")
+	cmd.MarkFlagsMutuallyExclusive("clear", "profile")
 	return cmd
 }
 

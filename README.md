@@ -242,10 +242,12 @@ and `revoke` keep it. The setup does not run, because it takes minutes and
 rarely changes; `--setup` runs it again, in the same order as `new`:
 packages, tools, skills, then your `setup` script. Skills are rebuilt from
 scratch then, so one dropped from the profile disappears; packages that were
-installed stay. The setup must not see the broker, so `apply --setup`
-refuses a VM with an open session or tunnel: close them first. A session
-started during the setup runs right away, but its broker connection waits
-for the setup to end, so a command that needs a capability fails until then.
+installed stay. The setup must see neither the broker nor a forwarded SSH
+agent, so `apply --setup` refuses a VM with an open session or tunnel: close
+them first. A session started during the setup runs right away, but its
+broker connection waits for the setup to end, so a command that needs a
+capability fails until then; with `ssh-agent` granted the session itself is
+refused until then.
 
 | Change in `.skiff`                         | Command                      |
 |--------------------------------------------|------------------------------|
@@ -253,9 +255,11 @@ for the setup to end, so a command that needs a capability fails until then.
 | grant added                                | `skiff apply agent1`         |
 | package, tool or skill added or changed    | `skiff apply agent1 --setup` |
 | grant removed                              | `skiff revoke agent1 CAP`    |
+| profile dropped altogether                 | `skiff apply agent1 --clear` |
 
 Grants are only ever added by `apply`; withdrawing one is a deliberate
-`revoke`. Nothing restarts: the files are written over ssh, Claude Code
+`revoke`. `--clear` removes everything the profile wrote and forgets it,
+grants included among the things it leaves alone. Nothing restarts: the files are written over ssh, Claude Code
 reads plugins at its next session start, Codex its config at its next start.
 
 Two more things from running this against real VMs:
