@@ -120,7 +120,10 @@ func updateTrust(flags string) string {
 	if flags != "" {
 		cmd += " " + flags
 	}
-	return `if [ "$(id -u)" = 0 ] && command -v update-ca-certificates >/dev/null; then ` + cmd + " >/dev/null; fi"
+	// Its routine warnings about the bundle would show on every grant; the
+	// output is printed only when it fails.
+	return `if [ "$(id -u)" = 0 ] && command -v update-ca-certificates >/dev/null; then ` +
+		`out=$(` + cmd + ` 2>&1) || { echo "$out" >&2; exit 1; }; fi`
 }
 
 func interceptSocket() string {

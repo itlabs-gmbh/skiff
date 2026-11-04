@@ -23,8 +23,14 @@ const interceptHost = "management.cloud.example"
 
 // seen records what the upstream received.
 type seen struct {
-	mu               sync.Mutex
-	auth, path, host string
+	mu                    sync.Mutex
+	auth, path, host, raw string
+}
+
+func (s *seen) rawPath() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.raw
 }
 
 func (s *seen) get() (auth, path string) {
@@ -48,7 +54,7 @@ func newInterceptEnv(t *testing.T, grants []string) *interceptEnv {
 	s := &seen{}
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
-		s.auth, s.path, s.host = r.Header.Get("Authorization"), r.URL.Path, r.Host
+		s.auth, s.path, s.host, s.raw = r.Header.Get("Authorization"), r.URL.Path, r.Host, r.URL.EscapedPath()
 		s.mu.Unlock()
 		io.WriteString(w, "upstream")
 	}))
@@ -129,7 +135,7 @@ func TestInterceptInjectsCredential(t *testing.T) {
 	if auth != "Bearer real-secret" || path != "/subscriptions" {
 		t.Errorf("upstream saw auth=%q path=%q", auth, path)
 	}
-	if log := e.audit.String(); !strings.Contains(log, `cap=cloud allow GET "/subscriptions" 200 host=`+interceptHost) {
+	if log := e.audit.String(); !strings.Contains(log, `cap=cloud allow GET "/subscriptions" 200 host="`+interceptHost+`"`) {
 		t.Errorf("audit = %q", log)
 	}
 }
@@ -360,5 +366,51 @@ func TestInterceptWithoutCAOnDiskRefusesHandshake(t *testing.T) {
 	}
 	if log := e.audit.String(); !strings.Contains(log, "deny TLS") {
 		t.Errorf("audit = %q", log)
+	}
+}
+
+// Intercepted requests keep their exact path: Graph addresses users by
+// UPN (%40) and the broker neither strips a cap name nor adds a base path.
+func TestInterceptForwardsEncodedPathVerbatim(t *testing.T) {
+	for _, p := range []string{"/v1.0/users/a%40b.example", "/x/a%2Fb/c"} {
+		t.Run(p, func(t *testing.T) {
+			e := newInterceptEnv(t, []string{"cloud"})
+			resp, body, err := e.get(t, "https://"+interceptHost+p, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status %d: %s", resp.StatusCode, body)
+			}
+			if got := e.seen.rawPath(); got != p {
+				t.Errorf("upstream saw %q, want %q", got, p)
+			}
+		})
+	}
+}
+
+func TestInterceptStillRejectsDotSegments(t *testing.T) {
+	e := newInterceptEnv(t, []string{"cloud"})
+	conn, err := tls.Dial("tcp", e.addr, &tls.Config{ServerName: interceptHost, RootCAs: e.client.Transport.(*http.Transport).TLSClientConfig.RootCAs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	io.WriteString(conn, "GET /a/../b HTTP/1.1\r\nHost: "+interceptHost+"\r\nConnection: close\r\n\r\n")
+	reply, _ := io.ReadAll(conn)
+	if !strings.HasPrefix(string(reply), "HTTP/1.1 400") {
+		t.Fatalf("reply = %q", reply)
+	}
+}
+
+// The server name is the guest's text; it must not be able to forge audit
+// lines, e.g. through a resumed session that skips the certificate check.
+func TestAuditQuotesServerName(t *testing.T) {
+	b, audit := newBroker(t, cap.Set{}, nil)
+	r := httptest.NewRequest(http.MethodGet, "https://x/", nil)
+	r.TLS = &tls.ConnectionState{ServerName: "evil\n2026-01-01T00:00:00Z vm=agent1 cap=cloud allow"}
+	b.audit(r, decision{cap: "cloud", reason: "allow"}, 200)
+	if lines := strings.Count(audit.String(), "\n"); lines != 1 {
+		t.Fatalf("one request wrote %d audit lines:\n%s", lines, audit.String())
 	}
 }

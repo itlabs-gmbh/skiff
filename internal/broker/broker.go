@@ -134,7 +134,9 @@ func (b *Broker) serve(w http.ResponseWriter, r *http.Request) {
 // dispatch routes /<cap>/<rest>, or a request for a host a proxy route
 // claims, and enforces grants.
 func (b *Broker) dispatch(w http.ResponseWriter, r *http.Request) decision {
-	if reason := unsafePath(r.URL); reason != "" {
+	// Intercepted requests are forwarded with their exact path to the root of
+	// their own host, so percent-encoding cannot change where they go.
+	if reason := unsafePath(r.URL, r.TLS != nil); reason != "" {
 		writeError(w, http.StatusBadRequest, reason, "")
 		return decision{status: http.StatusBadRequest, reason: "unsafe path"}
 	}
@@ -161,7 +163,7 @@ func (b *Broker) dispatch(w http.ResponseWriter, r *http.Request) decision {
 	}
 	r2 := r.Clone(r.Context())
 	r2.URL.Path = t.rest
-	r2.URL.RawPath = ""
+	r2.URL.RawPath = t.rawPath
 	h.ServeHTTP(w, r2)
 	return decision{cap: name, reason: "allow"}
 }
@@ -172,6 +174,8 @@ type target struct {
 	cap   cap.Cap
 	route *cap.Route
 	rest  string
+	// rawPath keeps the encoded form of rest for intercepted requests.
+	rawPath string
 }
 
 // locate resolves the request's target, answering it itself when there is none.
@@ -248,8 +252,8 @@ func (b *Broker) handlerFor(c cap.Cap, route *cap.Route) (http.Handler, error) {
 // encoding differently), no backslashes (some servers treat them as
 // separators) or NUL, no dot segments that could climb out of the base path,
 // no empty segments, and no difference from its cleaned form.
-func unsafePath(u *url.URL) string {
-	if strings.Contains(u.EscapedPath(), "%") || strings.Contains(u.RawPath, "%") {
+func unsafePath(u *url.URL, allowEncoded bool) string {
+	if !allowEncoded && (strings.Contains(u.EscapedPath(), "%") || strings.Contains(u.RawPath, "%")) {
 		return "percent-encoded characters are not allowed in capability paths"
 	}
 	if strings.ContainsAny(u.Path, "\\\x00") {
@@ -292,7 +296,7 @@ func (b *Broker) audit(r *http.Request, d decision, status int) {
 	// %q keeps a decoded newline in the path from forging a log line.
 	host := ""
 	if r.TLS != nil {
-		host = " host=" + strings.ToLower(r.TLS.ServerName)
+		host = fmt.Sprintf(" host=%q", strings.ToLower(r.TLS.ServerName))
 	}
 	_, err := fmt.Fprintf(log, "%s vm=%s cap=%s %s %s %q %d%s\n",
 		now().UTC().Format(time.RFC3339), b.VM, orDash(d.cap), d.reason, r.Method, r.URL.Path, status, host)

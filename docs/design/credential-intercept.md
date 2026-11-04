@@ -1,7 +1,8 @@
 # Design: credentials for HTTPS-only clients (broker intercept)
 
-Status: proposal, 2026-11-03. Based on the three Azure spikes in
-`spike/azure/` (host az 2.86, guest az 2.92, Ubuntu 24.04 arm64).
+Status: phase 1 implemented, 2026-11-04 (e2e: az 2.92 in an Ubuntu 24.04
+arm64 guest against ARM, Graph and Key Vault through the broker alone).
+Based on the three Azure spikes in `spike/azure/` (host az 2.86).
 
 Decision sought: the broker learns to terminate TLS for hosts a capability
 declares, so that clients which insist on `https://` to fixed hosts get
@@ -268,9 +269,14 @@ cluster CA), anything over SSH.
    min. A per-reference TTL (or reading `expires_on`) would save an az call
    per minute and route.
 3. **HTTP/2.** Needed for gRPC clients (GCP); not for phase 1–3.
-4. **Percent-encoded paths.** `unsafePath` refuses `%` in every broker
-   path, intercepted ones included. That is needed for `/<cap>/` paths;
-   whether real ARM or Graph calls hit it is to be checked in the e2e run.
+Decided:
 
-Decided: the CA key is a 0600 file (like `~/.skiff/id_ed25519`), not a
-Keychain item.
+- The CA key is a 0600 file (like `~/.skiff/id_ed25519`), not a Keychain
+  item.
+- Intercepted requests keep their path verbatim, percent-encoding included
+  (Graph addresses users by UPN, `%40`): they go to the root of their own
+  host, so there is no cap name to split off and no base path to climb out
+  of; `cap lint` refuses intercept upstreams with a path. Dot segments,
+  empty segments, backslashes and NUL are still refused.
+- TLS session tickets are off, so every connection passes the route and
+  grant check in the handshake; the server name is quoted in audit lines.

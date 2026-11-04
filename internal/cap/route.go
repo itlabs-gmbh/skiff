@@ -3,6 +3,7 @@ package cap
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -69,6 +70,11 @@ func (p Proxy) validateRoutes() []string {
 		// guest trusts the VM's CA for.
 		if r.Intercept && len(r.Headers) == 0 {
 			problems = append(problems, at+": an intercept route must inject at least one header")
+		}
+		// The broker forwards intercepted paths verbatim, which is only
+		// safe without a base path to climb out of.
+		if u, err := url.Parse(r.UpstreamURL()); r.Intercept && err == nil && u.Path != "" && u.Path != "/" {
+			problems = append(problems, at+": an intercept route's upstream must not have a path")
 		}
 	}
 	return problems

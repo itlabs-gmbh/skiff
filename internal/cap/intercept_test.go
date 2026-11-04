@@ -47,6 +47,7 @@ func TestParseRejectsBadInterceptRoutes(t *testing.T) {
 		{"no credential injected", "[proxy.routes.headers]\nAuthorization = \"Bearer {{ secret \\\"env:MGMT\\\" }}\"\n", "", "must inject"},
 		{"cleartext upstream", "intercept = true", "intercept = true\nupstream = \"http://management.cloud.example\"", "cleartext"},
 		{"ip host", `host = "management.cloud.example"`, `host = "10.0.0.1"`, "proxy.routes[0].host"},
+		{"upstream with a path", "intercept = true", "intercept = true\nupstream = \"https://management.cloud.example/base\"", "must not have a path"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

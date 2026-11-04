@@ -44,6 +44,9 @@ func (b *Broker) Listener(ln net.Listener) net.Listener {
 			MinVersion:     tls.VersionTLS12,
 			NextProtos:     []string{"http/1.1"},
 			GetCertificate: b.certificate,
+			// A resumed session skips GetCertificate and with it the route
+			// and grant check; every connection must take the full path.
+			SessionTicketsDisabled: true,
 		},
 		peekTimeout:      peekTimeout,
 		handshakeTimeout: handshakeTimeout,
@@ -118,7 +121,7 @@ func (b *Broker) locateIntercepted(w http.ResponseWriter, r *http.Request) (targ
 		writeError(w, http.StatusMisdirectedRequest, sni+" is not intercepted", "")
 		return target{}, decision{status: http.StatusMisdirectedRequest, reason: "not intercepted"}, false
 	}
-	return target{cap: c, route: &rt, rest: r.URL.Path}, decision{}, true
+	return target{cap: c, route: &rt, rest: r.URL.Path, rawPath: r.URL.RawPath}, decision{}, true
 }
 
 // auditTLS records a refused handshake; there is no HTTP request to log.
