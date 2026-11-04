@@ -289,7 +289,7 @@ func TestNewPassesOwnerAndSlot(t *testing.T) {
 		a, _, _ := newTestApp(t, sshOnly)
 		// the Mac stamps owned VMs, in UTC, because gc measures ages with its clock
 		a.now = func() time.Time { return gcNow.In(time.FixedZone("CEST", 2*3600)) }
-		info, err := a.NewVM(context.Background(), spec)
+		info, err := a.NewVM(context.Background(), spec, nil)
 		if err != nil {
 			t.Fatalf("NewVM: %v", err)
 		}
@@ -344,7 +344,7 @@ func TestNewVMPrunesLeftoversBeforeTheVMRuns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := a.NewVM(context.Background(), vm.Spec{VCPUs: 2, MemMiB: 1024}); err != nil {
+	if _, err := a.NewVM(context.Background(), vm.Spec{VCPUs: 2, MemMiB: 1024}, nil); err != nil {
 		t.Fatalf("NewVM: %v", err)
 	}
 	if strings.Join(leftoverAtCreate, ",") != "agent1" {
@@ -373,7 +373,7 @@ func TestNewVMStartsWithoutLeftoverGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.NewVM(context.Background(), vm.Spec{Name: "paseo-1", VCPUs: 2, MemMiB: 1024, Owner: "paseo", Slot: "1"}); err != nil {
+	if _, err := a.NewVM(context.Background(), vm.Spec{Name: "paseo-1", VCPUs: 2, MemMiB: 1024, Owner: "paseo", Slot: "1"}, nil); err != nil {
 		t.Fatalf("NewVM: %v", err)
 	}
 	if set, _ := store.Load("paseo-1"); len(set) != 0 {
@@ -409,7 +409,7 @@ func TestNewVMKeepsAGrantGivenWhileItStarts(t *testing.T) {
 		return nil
 	}
 	store.Dir = a.paths.VMsDir()
-	if _, err := a.NewVM(context.Background(), vm.Spec{Name: "box", VCPUs: 2, MemMiB: 1024}); err != nil {
+	if _, err := a.NewVM(context.Background(), vm.Spec{Name: "box", VCPUs: 2, MemMiB: 1024}, nil); err != nil {
 		t.Fatalf("NewVM: %v", err)
 	}
 	<-granted
@@ -431,7 +431,7 @@ func TestNewVMCancelledWhileWaitingLeavesTheOtherVMAlone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := a.NewVM(ctx, vm.Spec{Name: "box", VCPUs: 2, MemMiB: 1024})
+		_, err := a.NewVM(ctx, vm.Spec{Name: "box", VCPUs: 2, MemMiB: 1024}, nil)
 		done <- err
 	}()
 	time.Sleep(50 * time.Millisecond) // let NewVM block on the lock
@@ -454,7 +454,7 @@ func TestNewVMKeepsGrantsWhenTheNameIsTaken(t *testing.T) {
 	if err := store.Save("paseo-1", grant.Set{{Cap: "claude"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.NewVM(context.Background(), vm.Spec{Name: "paseo-1", VCPUs: 2, MemMiB: 1024}); err == nil {
+	if _, err := a.NewVM(context.Background(), vm.Spec{Name: "paseo-1", VCPUs: 2, MemMiB: 1024}, nil); err == nil {
 		t.Fatal("expected the backend's error")
 	}
 	if set, _ := store.Load("paseo-1"); len(set) != 1 {

@@ -18,6 +18,8 @@ type Fake struct {
 	calls   []string
 	argv    [][]string
 	inputs  map[string]string
+	// stdins keeps every stdin capture in call order.
+	stdins []string
 }
 
 // NewFake returns a Fake runner backed by handle.
@@ -29,7 +31,7 @@ func NewFake(handle FakeHandler) *Fake {
 func (f *Fake) Reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls, f.argv, f.inputs = nil, nil, map[string]string{}
+	f.calls, f.argv, f.inputs, f.stdins = nil, nil, map[string]string{}, nil
 }
 
 func (f *Fake) record(name string, args []string, input string) string {
@@ -41,6 +43,7 @@ func (f *Fake) record(name string, args []string, input string) string {
 	if input != "" {
 		f.inputs[line] = input
 	}
+	f.stdins = append(f.stdins, input)
 	return line
 }
 
@@ -101,6 +104,20 @@ func (f *Fake) Input(suffix string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// Inputs returns the stdin content of every invocation whose command line
+// ends with suffix, in call order.
+func (f *Fake) Inputs(suffix string) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for i, line := range f.calls {
+		if strings.HasSuffix(line, suffix) {
+			out = append(out, f.stdins[i])
+		}
+	}
+	return out
 }
 
 // Called reports whether an invocation matching the full command line was recorded.

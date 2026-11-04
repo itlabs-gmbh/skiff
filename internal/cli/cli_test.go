@@ -96,7 +96,8 @@ func TestNewDefaultsAndAutoName(t *testing.T) {
 }
 
 func TestNewRejectsRemovedFlags(t *testing.T) {
-	for _, flag := range []string{"--disk", "--profile", "--fresh"} {
+	// --profile exists again since 0.4.0, with a different meaning (profile files).
+	for _, flag := range []string{"--disk", "--fresh"} {
 		if _, _, err := run(t, "new", "box", flag, "x"); err == nil || !strings.Contains(err.Error(), "unknown flag") {
 			t.Errorf("%s belonged to the Lima backend and must be gone, got %v", flag, err)
 		}

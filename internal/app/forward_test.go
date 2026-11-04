@@ -39,7 +39,7 @@ func TestForwardRefusesBusyHostPorts(t *testing.T) {
 	if fb.CalledWithPrefix("forward") {
 		t.Error("the backend must not be asked to forward a busy port")
 	}
-	_, err = app.NewVM(context.Background(), vm.Spec{Name: "web2", VCPUs: 1, MemMiB: 1024, Forwards: []string{"8080"}})
+	_, err = app.NewVM(context.Background(), vm.Spec{Name: "web2", VCPUs: 1, MemMiB: 1024, Forwards: []string{"8080"}}, nil)
 	if err == nil || fb.CalledWithPrefix("create") {
 		t.Errorf("new must refuse busy ports before creating the VM: err=%v\n%s", err, fb.Dump())
 	}
@@ -165,7 +165,7 @@ func TestUnforward(t *testing.T) {
 
 func TestNewAppliesForwards(t *testing.T) {
 	app, fb, _, _ := forwardApp(t, true, free)
-	info, err := app.NewVM(context.Background(), vm.Spec{Name: "api", VCPUs: 1, MemMiB: 1024, Forwards: []string{"8080:80"}})
+	info, err := app.NewVM(context.Background(), vm.Spec{Name: "api", VCPUs: 1, MemMiB: 1024, Forwards: []string{"8080:80"}}, nil)
 	if err != nil {
 		t.Fatalf("NewVM: %v", err)
 	}

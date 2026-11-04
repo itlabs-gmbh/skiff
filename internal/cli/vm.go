@@ -11,21 +11,32 @@ import (
 
 	"github.com/sovyn-eu/skiff/internal/app"
 	"github.com/sovyn-eu/skiff/internal/config"
+	"github.com/sovyn-eu/skiff/internal/profile"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
 func newNewCmd(get func() *app.App) *cobra.Command {
 	spec := vm.Spec{}
 	var asJSON bool
+	var flags profileFlags
 	cmd := &cobra.Command{
 		Use:   "new [name]",
 		Short: "Create and boot a VM (needs at least 1 GiB of memory)",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `new creates a VM. A ./` + profile.RepoFile + ` file and the machine default
+~/.skiff/profile.toml, when present, size it, grant its capabilities, install
+tools and skills and configure the agents inside; flags given here win over
+the profile's values.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				spec.Name = args[0]
 			}
-			info, err := get().NewVM(cmd.Context(), spec)
+			prof, err := flags.resolve(get())
+			if err != nil {
+				return err
+			}
+			spec = applyMachine(cmd, spec, prof.Machine)
+			info, err := get().NewVM(cmd.Context(), spec, &prof)
 			if err != nil {
 				return err
 			}
@@ -42,6 +53,7 @@ func newNewCmd(get func() *app.App) *cobra.Command {
 	cmd.Flags().StringArrayVar(&spec.Grants, "grant", nil, "grant a capability right away, e.g. claude or github (repeatable)")
 	cmd.Flags().StringVar(&spec.Owner, "owner", "", "label the tool or person managing the VM; owned VMs can be collected by 'skiff gc'")
 	cmd.Flags().StringVar(&spec.Slot, "slot", "", "the VM's position in its owner's pool, e.g. 3 (needs --owner)")
+	flags.add(cmd)
 	return cmd
 }
 

@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/sovyn-eu/skiff/internal/cap"
+	"github.com/sovyn-eu/skiff/internal/config"
 	"github.com/sovyn-eu/skiff/internal/grant"
 	"github.com/sovyn-eu/skiff/internal/guest"
 	"github.com/sovyn-eu/skiff/internal/vm"
@@ -55,20 +56,37 @@ func (a *App) CapShow(name string, render bool, vmName string) error {
 	if !render {
 		return a.printCapSource(c)
 	}
-	if vmName == "" {
-		vmName = "example"
-	} else if err := vm.ValidateName(vmName); err != nil {
-		return err
-	}
-	data, err := a.templateData(vmName)
+	data, err := a.previewData(vmName)
 	if err != nil {
 		return err
+	}
+	if vmName == "" {
+		vmName = data.VM
 	}
 	plan, err := guest.Render([]cap.Cap{c}, data)
 	if err != nil {
 		return err
 	}
 	a.printf("# guest configuration of %s for %s\n", name, vmName)
+	a.printPlan(plan)
+	return nil
+}
+
+// previewData is the template data for a VM, or, with no name, for an
+// example VM that leaves no state behind on the Mac.
+func (a *App) previewData(vmName string) (cap.TemplateData, error) {
+	if vmName == "" {
+		return cap.TemplateData{VM: "example", BrokerURL: fmt.Sprintf("http://127.0.0.1:%d", config.BrokerGuestPort),
+			PseudoToken: "example-token", BrokerSocket: config.BrokerGuestSocket}, nil
+	}
+	if err := vm.ValidateName(vmName); err != nil {
+		return cap.TemplateData{}, err
+	}
+	return a.templateData(vmName)
+}
+
+// printPlan prints what a guest receives, one line per item.
+func (a *App) printPlan(plan guest.Plan) {
 	for _, k := range sortedKeys(plan.Env) {
 		a.printf("env %s=%s\n", k, plan.Env[k])
 	}
@@ -81,7 +99,6 @@ func (a *App) CapShow(name string, render bool, vmName string) error {
 	for _, m := range plan.Merges {
 		a.printf("json %s %s = %v\n", m.Path, m.Key, m.Value)
 	}
-	return nil
 }
 
 func (a *App) printCapSource(c cap.Cap) error {

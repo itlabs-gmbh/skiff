@@ -249,7 +249,7 @@ func TestSSHAgentOnlyNeedsNoBroker(t *testing.T) {
 func TestNewWithGrantsAndRemoveCleansState(t *testing.T) {
 	scripts := &sshScripts{state: "/etc/skiff/manifest\n\n"}
 	app, _ := newGrantApp(t, scripts)
-	info, err := app.NewVM(context.Background(), vm.Spec{Name: "agent1", VCPUs: 2, MemMiB: 1024, Grants: []string{"claude"}})
+	info, err := app.NewVM(context.Background(), vm.Spec{Name: "agent1", VCPUs: 2, MemMiB: 1024, Grants: []string{"claude"}}, nil)
 	if err != nil {
 		t.Fatalf("NewVM: %v", err)
 	}

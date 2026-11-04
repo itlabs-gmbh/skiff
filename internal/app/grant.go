@@ -11,6 +11,7 @@ import (
 	"github.com/sovyn-eu/skiff/internal/grant"
 	"github.com/sovyn-eu/skiff/internal/guest"
 	"github.com/sovyn-eu/skiff/internal/intercept"
+	"github.com/sovyn-eu/skiff/internal/profile"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -56,7 +57,7 @@ func (a *App) Grant(ctx context.Context, name string, specs []string) (grant.Set
 	}
 	// Configure the guest first: a grant is only persisted once the guest can
 	// actually use it, so a failed provision never leaves a silent allow.
-	if err := a.provision(ctx, name, caps, set); err != nil {
+	if err := a.provision(ctx, name, caps, set, nil); err != nil {
 		return nil, err
 	}
 	if err := store.Save(name, set); err != nil {
@@ -101,7 +102,7 @@ func (a *App) Revoke(ctx context.Context, name string, specs []string) (grant.Se
 	if err != nil {
 		return nil, err
 	}
-	if err := a.provision(ctx, name, caps, set); err != nil {
+	if err := a.provision(ctx, name, caps, set, nil); err != nil {
 		return nil, err
 	}
 	if len(set) == 0 {
@@ -145,12 +146,18 @@ func (a *App) templateData(name string) (cap.TemplateData, error) {
 	}, nil
 }
 
-// provision renders the guest configuration for the granted caps and applies
-// it over SSH: one call reads the current state, one call applies the plan.
-func (a *App) provision(ctx context.Context, name string, caps cap.Set, set grant.Set) error {
+// provision renders the guest configuration for the granted caps and the
+// VM's profile and applies it over SSH: one call reads the current state,
+// one call applies the plan. A nil prof means the profile stored for the VM.
+func (a *App) provision(ctx context.Context, name string, caps cap.Set, set grant.Set, prof *profile.Profile) error {
 	data, err := a.templateData(name)
 	if err != nil {
 		return err
+	}
+	if prof == nil {
+		if prof, err = a.storedProfile(name); err != nil {
+			return err
+		}
 	}
 	var granted []cap.Cap
 	for _, n := range set.Caps() {
@@ -158,10 +165,20 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 			granted = append(granted, c)
 		}
 	}
-	plan, err := guest.Render(granted, data)
+	all := granted
+	if prof != nil && !prof.IsZero() {
+		pc, err := prof.GuestConfig()
+		if err != nil {
+			return err
+		}
+		all = append(append([]cap.Cap(nil), granted...), pc)
+	}
+	plan, err := guest.Render(all, data)
 	if err != nil {
 		return err
 	}
+	// The relay only serves capabilities; a profile alone does not need it.
+	plan.Relay = len(granted) > 0
 	plan, rotation, err := a.withIntercept(plan, name, caps, set)
 	if err != nil {
 		return err
