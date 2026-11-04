@@ -228,7 +228,8 @@ headers, so the guest's placeholder never reaches the upstream. The CA is
 name-constrained to the intercepted hosts and their subdomains, and a revoke
 removes hosts entry, socket and CA from the guest. Hosts are listed by name;
 there are no wildcards. `examples/caps/azure.toml` with `azure-identity.toml`
-runs `az` this way, and `make e2e-intercept` tests the mechanism against a
+runs `az` this way, `examples/caps/azure-devops.toml` git, REST and Artifacts
+for Azure DevOps without a PAT, and `make e2e-intercept` tests the mechanism against a
 real VM. Design and trade-offs: `docs/design/credential-intercept.md`.
 
 The embedded `claude` capability points `ANTHROPIC_BASE_URL` at the broker and
