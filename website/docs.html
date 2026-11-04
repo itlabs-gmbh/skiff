@@ -102,6 +102,65 @@
         <p><code>skiff forward web</code> without ports lists them; <code>skiff unforward web 5432</code> removes one.</p>
       </section>
 
+      <section id="profiles">
+        <h2>Profiles: what a VM needs</h2>
+        <p>Instead of installing by hand after every <code>new</code>, describe what a VM needs in a profile: its size, the capabilities to grant, packages, agent CLIs and skills to install, and the plugins, MCP servers and settings of Claude Code or Codex inside. A <code>.skiff</code> file in a repository holds what that repository needs; <code>~/.skiff/profile.toml</code> is the machine default for every VM. <code>skiff new</code> merges both, flags win.</p>
+        <div class="cmd" data-copy="skiff profile init">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">skiff profile init</span>
+          <button type="button" aria-label="Copy skiff profile init to the clipboard"></button>
+        </div>
+<pre class="code">grants = ["claude", "github"]
+skills = ["anthropics/skills/skills/pdf"]
+
+[machine]
+vcpus = 4
+mem = 4096
+
+[guest]
+tools = ["claude"]
+packages = ["nodejs", "npm"]
+
+[claude]
+plugins = ["frontend-design@claude-plugins-official"]
+[claude.mcp.context7]
+type = "http"
+url = "https://mcp.context7.com/mcp"</pre>
+        <div class="cmd" data-copy="skiff profile trust &amp;&amp; skiff new agent1">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">skiff profile trust &amp;&amp; skiff new agent1</span>
+          <button type="button" aria-label="Copy the trust and create commands to the clipboard"></button>
+        </div>
+        <p>The VM boots, the setup runs as root (packages, tools, skills, then your <code>setup</code> script) with its output on your terminal, the grants are made and the agent configuration is written. <code>skiff profile show --render</code> shows exactly what the guest will get. On an M4 Pro, a VM with Claude Code, Codex and a skill is ready in about 50 seconds.</p>
+        <h3>Trusting a repository's <code>.skiff</code></h3>
+        <p>A <code>.skiff</code> is as trustworthy as its repository: it chooses grants, forwards host ports and runs a script as root in the VM, and the grants apply to whatever runs in the VM afterwards. So <code>new</code> and <code>apply</code> refuse a repository file until you have trusted it, and the refusal says what the file would do:</p>
+<pre class="code">skiff: profile is not trusted: .skiff (it grants claude, github, forwards ports 3000,
+runs a setup as root in the VM, configures the agents); read it with
+'skiff profile show --render', then 'skiff profile trust' or --trust, or pass --no-profile</pre>
+        <p><code>skiff profile trust</code> records the file's SHA-256 and path in <code>~/.skiff/trusted</code>, like direnv's <code>allow</code>; an edit needs a new trust. <code>--trust</code> on <code>new</code> or <code>apply</code> does it in the same run, <code>--no-profile</code> ignores the repository file. Your own <code>~/.skiff/profile.toml</code> needs no trust.</p>
+        <h3>Keeping a VM up to date</h3>
+        <div class="cmd" data-copy="skiff apply agent1">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">skiff apply agent1</span>
+          <button type="button" aria-label="Copy skiff apply agent1 to the clipboard"></button>
+        </div>
+        <p><code>apply</code> brings a running VM to the state of the profile after you edited it: grants the profile lists are added, the agent configuration is rewritten and what the old profile wrote and the new one no longer names is removed. The setup does not run again unless you pass <code>--setup</code>, which reinstalls packages, tools and skills and runs your script once more. Grants are only ever added; withdraw one with <code>skiff revoke</code>.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Change in <code>.skiff</code></th><th>Command</th></tr></thead>
+            <tbody>
+              <tr><td>plugin, MCP server, setting or grant added</td><td><code>skiff apply agent1</code></td></tr>
+              <tr><td>package, tool or skill added or changed</td><td><code>skiff apply agent1 --setup</code></td></tr>
+              <tr><td>grant removed</td><td><code>skiff revoke agent1 CAP</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <p>Plugins from a marketplace the profile declares itself install on the second Claude Code session: the first registers the marketplace, the next installs from it. Plugins from <code>claude-plugins-official</code> install on the first.</p>
+        </div>
+        <p>The <a href="https://github.com/sovyn-eu/skiff#profiles-what-a-vm-needs">README</a> has the full file format and what lands where in the guest.</p>
+      </section>
+
       <section id="network">
         <h2>What a VM can reach</h2>
         <p>The internet, through NAT, and nothing else: a firewall in the guest rejects your Mac, your LAN and other VMs. Root in the VM can lift it, so treat it as a guard rail. The only controlled way back to the Mac is the <a href="capabilities.html">capability broker</a>.</p>
@@ -119,6 +178,9 @@
               <tr><td><code>new [NAME] [--vcpus N --mem MiB -p PORT --grant CAP --owner O --slot S]</code></td><td>Create and boot a VM.</td></tr>
               <tr><td><code>new … -p [HOST:]GUEST --grant CAP</code></td><td>Forward ports and grant capabilities right away.</td></tr>
               <tr><td><code>new … --owner NAME --slot N</code></td><td>Label a VM a tool manages, for <code>gc</code>.</td></tr>
+              <tr><td><code>new … [--profile FILE | --no-profile]</code></td><td>Use another profile file than <code>./.skiff</code>, or ignore it. See <a href="#profiles">Profiles</a>.</td></tr>
+              <tr><td><code>apply NAME [--setup]</code></td><td>Apply the profile to a running VM: grant, configure, and with <code>--setup</code> install again.</td></tr>
+              <tr><td><code>profile show [--vm NAME] [--render] / init [--global] / lint / trust</code></td><td>Show the merged profile or a VM's, write a skeleton, validate, trust a repository's file.</td></tr>
               <tr><td><code>ls [--json]</code></td><td>Every VM with state, IP, size, ports, grants, owner, age and SSH destination.</td></tr>
               <tr><td><code>inspect NAME [--json]</code></td><td>Details of one VM.</td></tr>
               <tr><td><code>ssh NAME [command…]</code></td><td>Root shell, or a command line run by the guest shell. Carries the broker.</td></tr>

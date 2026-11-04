@@ -65,7 +65,7 @@
           <span class="text">skiff ssh task-42 -- 'curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &amp;&amp; apt-get install -y nodejs gh rsync &amp;&amp; curl -fsSL https://claude.ai/install.sh | bash'</span>
           <button type="button" aria-label="Copy the toolchain install command to the clipboard"></button>
         </div>
-        <p>Put that line in a script and run it after every <code>new</code>, or keep a prepared VM stopped and <code>start</code> it per task.</p>
+        <p>Or put it in a <a href="docs.html#profiles">profile</a>: a <code>.skiff</code> in the repository with <code>tools = ["claude"]</code>, the packages, grants and the plugins and MCP servers Claude Code or Codex should have, and <code>skiff new</code> does all of it.</p>
         <p><code>-p 3000</code> brings the agent's dev server to <code>localhost:3000</code> on your Mac. Use one VM per task or per untrusted repository, not one VM for everything: whatever a VM is granted, every process in it can use while the broker is up.</p>
         <div class="callout">
           <p>The VM keeps no copy of your credentials, but the agent's own model traffic still goes to its provider. skiff isolates the workspace; it does not change where inference happens.</p>

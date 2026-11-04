@@ -39,6 +39,9 @@ Tools: Go 1.26+.
 | `internal/app`      | workflows (prepare, new, ssh, forward, ...)          |
 | `internal/backend`  | backend interface, the `container` backend and an in-memory fake for tests |
 | `internal/host`     | host preflight checks (`skiff doctor`)            |
+| `internal/cap`      | capability files and embedded defaults               |
+| `internal/profile`  | profile files (`.skiff`, machine default), merge, rendering |
+| `internal/guest`    | guest provisioning scripts                           |
 | `internal/vm`       | VM spec and port-forward validation                  |
 | `internal/sshcfg`   | `~/.skiff/ssh_config` rendering                   |
 | `internal/config`   | pinned versions and SHA-256 digests                  |

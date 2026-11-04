@@ -7,7 +7,22 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Profiles.** A `.skiff` file in a repository and `~/.skiff/profile.toml`
+  as the machine default say what a VM needs: `[machine]` size and ports,
+  `grants`, `skills` from git repositories, `[guest]` packages, agent CLIs
+  (`tools = ["claude", "codex"]`) and a setup script, plus `[claude]`
+  plugins, marketplaces, MCP servers and settings and `[codex]` MCP servers
+  and config. `skiff new` merges both (flags win), runs the setup as root
+  before any grant, grants the profile's capabilities and writes the agent
+  configuration through the same planner as capabilities, so a clash with
+  a capability is an error. A repository's `.skiff` is used only after
+  `skiff profile trust` (or `--trust`) recorded its content. New commands:
+  `skiff apply NAME [--setup]`, `skiff profile show [--vm NAME] [--render]`,
+  `skiff profile init [--global]`, `skiff profile lint`, `skiff profile
+  trust`; new flags `--profile FILE`, `--no-profile` and `--trust` on `new`
+  and `apply`. The capability name `profile` is reserved.
 
 ## [0.3.0] - 2026-11-04
 
