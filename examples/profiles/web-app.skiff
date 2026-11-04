@@ -1,0 +1,33 @@
+# .skiff for a Node web application. Merged over ~/.skiff/profile.toml by
+# `skiff new`: lists are joined, tables merged, values here win.
+
+skills = ["anthropics/skills/skills/frontend-design"]
+
+[machine]
+vcpus = 4
+mem = 4096
+ports = ["3000"]
+
+[guest]
+tools = ["codex"]
+packages = ["nodejs", "npm", "rsync"]
+setup = """
+npm install -g pnpm
+"""
+[guest.env]
+NODE_OPTIONS = "--max-old-space-size=3072"
+
+[claude]
+plugins = ["frontend-design@claude-plugins-official"]
+[claude.mcp.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest", "--headless"]
+[claude.settings.permissions]
+allow = ["Bash(pnpm test:*)", "Bash(pnpm lint:*)"]
+
+[codex.mcp.playwright]
+command = "npx"
+args = ["@playwright/mcp@latest", "--headless"]
+[codex.config]
+approval_policy = "never"
+sandbox_mode = "danger-full-access"

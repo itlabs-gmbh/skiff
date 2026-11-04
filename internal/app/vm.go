@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sovyn-eu/skiff/internal/config"
+	"github.com/sovyn-eu/skiff/internal/profile"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -16,8 +17,10 @@ const cleanupTimeout = 2 * time.Minute
 // VMInfo is what the backend reports about a VM, plus its grants.
 type VMInfo = vm.Info
 
-// NewVM creates and boots a microVM.
-func (a *App) NewVM(ctx context.Context, spec vm.Spec) (VMInfo, error) {
+// NewVM creates and boots a microVM. With a profile, its setup runs in the
+// fresh guest and its grants and agent configuration are applied together
+// with the grants of the spec.
+func (a *App) NewVM(ctx context.Context, spec vm.Spec, prof *profile.Profile) (VMInfo, error) {
 	if err := spec.Validate(); err != nil {
 		return VMInfo{}, err
 	}
@@ -76,7 +79,14 @@ func (a *App) NewVM(ctx context.Context, spec vm.Spec) (VMInfo, error) {
 			return info, err
 		}
 	}
-	if len(spec.Grants) > 0 {
+	switch {
+	case prof != nil && !prof.IsZero():
+		set, err := a.Apply(ctx, info.Name, *prof, spec.Grants, true)
+		if err != nil {
+			return info, err
+		}
+		info.Grants = set.Caps()
+	case len(spec.Grants) > 0:
 		set, err := a.Grant(ctx, info.Name, spec.Grants)
 		if err != nil {
 			return info, err

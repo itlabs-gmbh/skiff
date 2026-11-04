@@ -95,6 +95,8 @@ stay on the Mac and are brokered into the VM per grant.`,
 		newGrantsCmd(get),
 		newCapCmd(get),
 		newSecretCmd(get),
+		newApplyCmd(get),
+		newProfileCmd(get),
 	)
 	return root
 }

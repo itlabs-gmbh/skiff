@@ -22,6 +22,10 @@ var defaults embed.FS
 // SourceEmbedded marks a capability that came from the embedded defaults.
 const SourceEmbedded = "embedded"
 
+// ReservedProfile is the owner name under which a VM's profile manages its
+// guest configuration; no capability may be called that.
+const ReservedProfile = "profile"
+
 // Set is the resolved collection of capabilities, keyed by name.
 type Set map[string]Cap
 
@@ -44,6 +48,9 @@ func Parse(text string, source string) (Cap, error) {
 	c.Source = source
 	if err := c.Validate(); err != nil {
 		return Cap{}, fmt.Errorf("%s: %w", source, err)
+	}
+	if c.Name == ReservedProfile {
+		return Cap{}, fmt.Errorf("%s: the name %q is reserved for VM profiles", source, ReservedProfile)
 	}
 	return c, nil
 }

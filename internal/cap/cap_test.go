@@ -343,3 +343,10 @@ func TestExampleCapsAreValid(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRejectsReservedProfileName(t *testing.T) {
+	_, err := Parse("name = \"profile\"\n[proxy]\nupstream = \"https://example.com\"\n", "test")
+	if err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Errorf("the profile owner name must be reserved, got %v", err)
+	}
+}

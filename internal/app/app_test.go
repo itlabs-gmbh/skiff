@@ -45,7 +45,7 @@ func seed(a *App, vms ...vm.Info) {
 
 func TestNewCreatesThroughTheBackend(t *testing.T) {
 	app, _, out := newTestApp(t, sshOnly)
-	info, err := app.NewVM(context.Background(), vm.Spec{Name: "vm1", VCPUs: 2, MemMiB: 1024})
+	info, err := app.NewVM(context.Background(), vm.Spec{Name: "vm1", VCPUs: 2, MemMiB: 1024}, nil)
 	if err != nil {
 		t.Fatalf("NewVM: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestNewCreatesThroughTheBackend(t *testing.T) {
 
 func TestNewRejectsInvalidSpec(t *testing.T) {
 	app, _, _ := newTestApp(t, sshOnly)
-	if _, err := app.NewVM(context.Background(), vm.Spec{Name: "Bad Name", VCPUs: 2, MemMiB: 1024}); err == nil {
+	if _, err := app.NewVM(context.Background(), vm.Spec{Name: "Bad Name", VCPUs: 2, MemMiB: 1024}, nil); err == nil {
 		t.Fatal("expected validation error")
 	}
 	if len(backendOf(app).Calls) != 0 {
@@ -73,7 +73,7 @@ func TestNewRejectsInvalidSpec(t *testing.T) {
 func TestNewRequiresReadyBackend(t *testing.T) {
 	app, _, _ := newTestApp(t, sshOnly)
 	backendOf(app).ReadyErr = errors.New("the container system service is not running, run 'skiff prepare'")
-	_, err := app.NewVM(context.Background(), vm.Spec{Name: "vm1", VCPUs: 2, MemMiB: 1024})
+	_, err := app.NewVM(context.Background(), vm.Spec{Name: "vm1", VCPUs: 2, MemMiB: 1024}, nil)
 	if err == nil || !strings.Contains(err.Error(), "skiff prepare") {
 		t.Fatalf("expected error pointing at 'skiff prepare', got %v", err)
 	}

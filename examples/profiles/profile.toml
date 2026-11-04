@@ -1,0 +1,20 @@
+# Machine default: every VM gets Claude Code, reaches Anthropic and GitHub
+# through the broker, and has 2 GiB of memory unless a .skiff says otherwise.
+#
+#   skiff secret set claude-token      # once: the output of `claude setup-token`
+#   skiff secret set github-token      # once: a fine-grained token
+#   cp examples/profiles/profile.toml ~/.skiff/profile.toml
+
+grants = ["claude", "github"]
+
+[machine]
+mem = 2048
+
+[guest]
+tools = ["claude"]
+
+[claude.settings]
+# Managed settings apply to every session in the VM; the agent cannot edit
+# them away. Keep them to what every project needs.
+[claude.settings.permissions]
+allow = ["Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)"]

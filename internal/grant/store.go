@@ -23,9 +23,10 @@ type Store struct {
 }
 
 const (
-	grantsFile = "grants"
-	tokenFile  = "token"
-	tokenBytes = 16
+	grantsFile  = "grants"
+	tokenFile   = "token"
+	profileFile = "profile.toml"
+	tokenBytes  = 16
 )
 
 // vmDir validates the name before building a path; VM names and cap names
@@ -87,6 +88,35 @@ func (s Store) Save(vm string, set Set) error {
 		text += "\n"
 	}
 	return writeAtomic(filepath.Join(dir, grantsFile), []byte(text), 0o600)
+}
+
+// LoadProfile returns the profile applied to a VM, as TOML text; empty when
+// none was applied.
+func (s Store) LoadProfile(vm string) (string, error) {
+	dir, err := s.vmDir(vm)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, profileFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read profile: %w", err)
+	}
+	return string(data), nil
+}
+
+// SaveProfile replaces the profile applied to a VM.
+func (s Store) SaveProfile(vm string, text string) error {
+	dir, err := s.vmDir(vm)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create vm state: %w", err)
+	}
+	return writeAtomic(filepath.Join(dir, profileFile), []byte(text), 0o600)
 }
 
 // Token returns the VM's placeholder token, creating it on first use. The

@@ -66,15 +66,16 @@ skiff moved to one Virtualization.framework VM per guest:
 | cold boot to sshd                     | –       | 1.5 s (+0.1 s ssh)  | 0.5 s     |
 
 There are no golden snapshots (every boot is cold and fast), no image
-profiles (install what a task needs over ssh) and no `--disk` (the root disk
-is a sparse 512 GiB volume that grows on demand); VMs need at least 1 GiB of
-memory.
+variants (a [profile](#profiles-what-a-vm-needs) installs what a task needs
+over ssh) and no `--disk` (the root disk is a sparse 512 GiB volume that
+grows on demand); VMs need at least 1 GiB of memory.
 
 ## Usage
 
 ```sh
 skiff new                    # boots vm1 (2 vCPUs, 1 GiB RAM, 2G disk)
 skiff new dev --vcpus 4 --mem 2048
+skiff new dev                # in a repo with a .skiff file: sized, granted and set up from it
 skiff ls
 skiff ls --json              # also: new --json, inspect --json
 skiff inspect dev            # details of one VM
@@ -135,6 +136,141 @@ Then `ssh dev.skiff` works from anywhere, including `scp`, `rsync` and your IDE.
 The alias runs `skiff _dial` as ProxyCommand, which connects to the VM's
 current address and verifies the host key pinned at creation, so no port
 forwarding or `sudo` is needed on macOS.
+
+### Profiles: what a VM needs
+
+A profile says what a VM needs to work on something: its size, the
+capabilities it is granted, the packages, agent CLIs and skills installed in
+the guest, and the plugins, MCP servers and settings of the coding agents
+inside. It is a TOML file in two places:
+
+- `~/.skiff/profile.toml` is the **machine default** and applies to every VM
+  (`skiff profile init --global` writes a commented skeleton);
+- `.skiff` in a repository adds what **that repository** needs
+  (`skiff profile init`). Commit it.
+
+`skiff new` merges both: lists are joined, tables merged key by key, and a
+value in `.skiff` wins. Flags still win over the profile.
+
+```toml
+grants = ["claude", "github"]
+skills = ["anthropics/skills/skills/pdf"]      # owner/repo[/path][@ref], or an https URL
+
+[machine]
+vcpus = 4
+mem = 4096
+ports = ["3000"]
+
+[guest]
+tools = ["claude"]                             # agent CLIs skiff installs: claude, codex
+packages = ["nodejs", "npm"]                   # apt
+setup = """
+npm install -g pnpm
+"""
+
+[claude]
+plugins = ["frontend-design@claude-plugins-official", "superpowers@superpowers-marketplace"]
+[claude.marketplaces.superpowers-marketplace]
+source = "github"
+repo = "obra/superpowers-marketplace"
+[claude.mcp.context7]
+type = "http"
+url = "https://mcp.context7.com/mcp"
+[claude.settings.permissions]
+allow = ["Bash(go test:*)"]
+
+[codex.mcp.context7]
+url = "https://mcp.context7.com/mcp"
+[codex.config]
+approval_policy = "never"
+```
+
+```sh
+skiff profile show              # the merged result; --render shows what the guest gets
+skiff profile lint              # check both files
+skiff profile trust             # accept the repository's .skiff as it is now
+skiff new agent1                # boot, install, grant, configure
+skiff apply agent1              # after editing: re-grant and re-configure a running VM
+skiff apply agent1 --setup      # ... and run the installs again
+skiff profile show --vm agent1  # the profile a VM was given
+```
+
+What happens on `skiff new`: the VM boots, the **setup** runs as root over
+ssh (packages, tools, skills, then the `setup` script, in that order; its
+output is on your terminal), the profile's grants are granted together with
+`--grant`, and the agent configuration is written like a capability's guest
+section. Claude Code gets the plugins and marketplaces in a managed-settings
+drop-in (`/etc/claude-code/managed-settings.d/50-skiff.json`, installed at
+the start of its next session; `CLAUDE_CODE_SYNC_PLUGIN_INSTALL=1` makes
+`claude -p` wait for it) and its MCP servers in `/root/.claude.json`, the
+same place the capabilities use, so a name declared by both is an error.
+Codex gets `/root/.codex/config.toml` written whole, with the free-form
+`config` and `[mcp_servers.<name>]` tables (skiff owns that file while the
+profile has a `[codex]` section). Skills are cloned
+into `/opt/skiff/skills` and linked into `/root/.claude/skills` and
+`/root/.agents/skills`, where Claude Code and Codex look for personal skills.
+The profile is stored with the VM, so later `grant` and `revoke` keep its
+configuration; `skiff rm` removes it with the VM.
+
+#### Trusting a repository's `.skiff`
+
+A `.skiff` is as trustworthy as its repository: it chooses grants, forwards
+host ports and runs a script as root in the VM, and the grants apply to
+whatever runs in the VM afterwards. So `skiff new` and `skiff apply` refuse
+a repository file until you have trusted it:
+
+```
+skiff: profile is not trusted: .skiff (it grants claude, github, forwards ports 3000,
+runs a setup as root in the VM, configures the agents); read it with
+'skiff profile show --render', then 'skiff profile trust' or --trust, or pass --no-profile
+```
+
+`skiff profile trust` records the file's SHA-256 and absolute path in
+`~/.skiff/trusted`, like direnv's `allow`. An edit changes the hash, so the
+file has to be trusted again. `--trust` on `new` or `apply` does it in the
+same run; `--no-profile` ignores the repository file (the machine default
+still applies). The machine default is your own file and needs no trust.
+
+#### Keeping a VM up to date: `skiff apply`
+
+`apply` brings a running VM to the state of the profile after you edited
+it. Without a flag only the quick part runs: grants the profile lists are
+added, the agent configuration (plugins, MCP servers, settings, Codex config)
+is rewritten and whatever the old profile wrote and the new one no longer
+names is removed, and the profile is stored with the VM so later `grant`
+and `revoke` keep it. The setup does not run, because it takes minutes and
+rarely changes; `--setup` runs it again, in the same order as `new`:
+packages, tools, skills, then your `setup` script. Skills are rebuilt from
+scratch then, so one dropped from the profile disappears; packages that were
+installed stay. The setup must not see the broker, so `apply --setup`
+refuses a VM with an open session or tunnel: close them first. A session
+started during the setup runs right away, but its broker connection waits
+for the setup to end, so a command that needs a capability fails until then.
+
+| Change in `.skiff`                         | Command                      |
+|--------------------------------------------|------------------------------|
+| plugin, MCP server, setting added          | `skiff apply agent1`         |
+| grant added                                | `skiff apply agent1`         |
+| package, tool or skill added or changed    | `skiff apply agent1 --setup` |
+| grant removed                              | `skiff revoke agent1 CAP`    |
+
+Grants are only ever added by `apply`; withdrawing one is a deliberate
+`revoke`. Nothing restarts: the files are written over ssh, Claude Code
+reads plugins at its next session start, Codex its config at its next start.
+
+Two more things from running this against real VMs:
+
+- Plugins from a marketplace the profile declares itself install on the
+  **second** Claude Code session: the first registers the marketplace, the
+  next installs from it. Plugins from `claude-plugins-official` install on
+  the first. `claude plugin list` right after a `claude -p` run may still
+  show nothing while the install finishes in the background.
+- Private skill repositories are not reachable (no broker during setup);
+  publish them or clone them yourself afterwards.
+
+Every string in a profile's guest-facing sections is a template with the
+same data as capability files (`.VM`, `.BrokerURL`, `.PseudoToken`,
+`.BrokerSocket`), so an MCP entry can point at a capability's broker URL.
 
 ### Capabilities: credentials and MCPs without copying secrets
 
@@ -301,7 +437,8 @@ Layout: `cmd/skiff` (entry point), `internal/cli` (cobra commands),
 backend and an in-memory fake for tests), `internal/host` (host facts),
 `internal/broker` (per-VM capability broker), `internal/intercept` (per-VM
 intercept CA), `internal/cap` (capability files,
-embedded defaults), `internal/grant` (per-VM policy), `internal/guest`
+embedded defaults), `internal/profile` (profile files, their merge and
+rendering), `internal/grant` (per-VM policy), `internal/guest`
 (guest provisioning scripts), `internal/secret` (Keychain/env/cmd/file resolver),
 `internal/vm` (spec validation), `internal/sshcfg` (ssh_config rendering).
 

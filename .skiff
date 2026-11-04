@@ -1,0 +1,19 @@
+# What a VM needs to work on skiff itself: Go 1.26 (Ubuntu's golang-go is
+# too old) and the Go module cache warmed. Grants and agent CLIs come from
+# your ~/.skiff/profile.toml, not from this file.
+
+[machine]
+vcpus = 4
+mem = 4096
+
+[guest]
+packages = ["build-essential", "shellcheck"]
+setup = """
+GO_VERSION=1.26.5
+curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" | tar -C /usr/local -xz
+ln -sfn /usr/local/go/bin/go /usr/local/bin/go
+ln -sfn /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+"""
+
+[claude.settings.permissions]
+allow = ["Bash(go test:*)", "Bash(go vet:*)", "Bash(go build:*)", "Bash(gofmt:*)", "Bash(make test)", "Bash(make lint)"]

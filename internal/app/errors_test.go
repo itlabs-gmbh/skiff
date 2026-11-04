@@ -59,7 +59,7 @@ func TestNewCleansUpWhenInterrupted(t *testing.T) {
 		cancel() // Ctrl-C while the backend creates the VM
 		return errors.New("signal: interrupt")
 	}
-	if _, err := app.NewVM(ctx, vm.Spec{Name: "doomed", VCPUs: 1, MemMiB: 1024}); err == nil {
+	if _, err := app.NewVM(ctx, vm.Spec{Name: "doomed", VCPUs: 1, MemMiB: 1024}, nil); err == nil {
 		t.Fatal("expected the interrupted creation to fail")
 	}
 	if !fb.Called("rm doomed") {
@@ -74,7 +74,7 @@ func TestNewDoesNotCleanUpOnOrdinaryFailure(t *testing.T) {
 	app, _, _ := newTestApp(t, sshOnly)
 	fb := backendOf(app)
 	fb.OnCreate = func(context.Context, vm.Spec) error { return errors.New("exit status 1") }
-	if _, err := app.NewVM(context.Background(), vm.Spec{Name: "x", VCPUs: 1, MemMiB: 1024}); err == nil {
+	if _, err := app.NewVM(context.Background(), vm.Spec{Name: "x", VCPUs: 1, MemMiB: 1024}, nil); err == nil {
 		t.Fatal("expected failure")
 	}
 	if fb.CalledWithPrefix("rm") {
@@ -90,7 +90,7 @@ func TestNewInterruptedWithoutNameOnlyHints(t *testing.T) {
 		cancel()
 		return errors.New("signal: interrupt")
 	}
-	_, _ = app.NewVM(ctx, vm.Spec{VCPUs: 1, MemMiB: 1024})
+	_, _ = app.NewVM(ctx, vm.Spec{VCPUs: 1, MemMiB: 1024}, nil)
 	if fb.CalledWithPrefix("rm") || !strings.Contains(out.String(), "skiff ls") {
 		t.Errorf("unnamed VMs cannot be cleaned up blindly:\n%s\n%s", fb.Dump(), out.String())
 	}

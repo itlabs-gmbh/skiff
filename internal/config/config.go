@@ -56,6 +56,9 @@ func (p Paths) KnownHostsPath() string { return filepath.Join(p.Home, "known_hos
 // CapsDir holds the user's capability files (one <name>.toml each).
 func (p Paths) CapsDir() string { return filepath.Join(p.Home, "caps") }
 
+// ProfilePath is the machine default profile, applied to every VM.
+func (p Paths) ProfilePath() string { return filepath.Join(p.Home, "profile.toml") }
+
 // CapsLock serialises installations into CapsDir.
 func (p Paths) CapsLock() string { return filepath.Join(p.Home, "caps.lock") }
 
