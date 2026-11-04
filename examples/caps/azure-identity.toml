@@ -8,7 +8,7 @@
 # rejects the token, and the broker replaces it on every intercepted request.
 # It holds no secret.
 #
-#   examples/caps/azure-identity.sh > ~/.skiff/azure-identity.json
+#   sh examples/caps/azure-identity.sh               # writes ~/.skiff/azure-identity.json
 #
 # Regenerate the file when the Mac's az login moves to another user or
 # tenant. If it is missing, az in the guest reports "None, None".

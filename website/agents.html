@@ -155,7 +155,7 @@
 
       <section id="azure">
         <h2>Azure CLI without a token in the VM</h2>
-        <p><code>az</code> cannot be pointed at a base URL: it talks <code>https://</code> to fixed Azure hosts. The repository ships two capabilities that use <a href="capabilities.html#intercept">intercept routes</a> instead. The broker terminates TLS for Resource Manager and Microsoft Graph and sets a token that <code>az</code> on your Mac mints; the guest logs in with a placeholder identity that Azure rejects. Log in on the Mac once, then fetch both files and generate the placeholder:</p>
+        <p><code>az</code> cannot be pointed at a base URL: it talks <code>https://</code> to fixed Azure hosts. The repository ships two capabilities that use <a href="capabilities.html#intercept">intercept routes</a> instead. The broker terminates TLS for Resource Manager and Microsoft Graph and sets a token that <code>az</code> on your Mac mints; the guest logs in with a placeholder identity that Azure rejects. Log in on the Mac once, then fetch both files and generate the placeholder, which needs <code>jq</code> (part of macOS 15 and later) and writes <code>~/.skiff/azure-identity.json</code>:</p>
         <div class="cmd" data-copy="az login">
           <span class="prompt" aria-hidden="true">$</span>
           <span class="text">az login</span>
@@ -166,9 +166,9 @@
           <span class="text">curl -fsSL --create-dirs -o ~/.skiff/caps/azure.toml https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure.toml -o ~/.skiff/caps/azure-identity.toml https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-identity.toml</span>
           <button type="button" aria-label="Copy the download command to the clipboard"></button>
         </div>
-        <div class="cmd" data-copy="curl -fsSLO https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-identity.sh &amp;&amp; sh azure-identity.sh &gt; ~/.skiff/azure-identity.json">
+        <div class="cmd" data-copy="curl -fsSLO https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-identity.sh &amp;&amp; sh azure-identity.sh">
           <span class="prompt" aria-hidden="true">$</span>
-          <span class="text">curl -fsSLO https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-identity.sh &amp;&amp; sh azure-identity.sh &gt; ~/.skiff/azure-identity.json</span>
+          <span class="text">curl -fsSLO https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-identity.sh &amp;&amp; sh azure-identity.sh</span>
           <button type="button" aria-label="Copy the placeholder command to the clipboard"></button>
         </div>
         <div class="cmd" data-copy="skiff cap lint azure &amp;&amp; skiff grant task-42 azure azure-identity">
