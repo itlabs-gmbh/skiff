@@ -7,6 +7,14 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.1] - 2026-11-04
+
+A fix for the Azure example capabilities. The website now documents
+intercept routes and the Azure CLI (`capabilities.html#intercept`,
+`agents.html#azure`).
+
 ### Fixed
 
 - `examples/caps/azure-identity.sh` writes `~/.skiff/azure-identity.json`
@@ -251,7 +259,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sovyn-eu/skiff/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sovyn-eu/skiff/compare/v0.0.1...v0.1.0
