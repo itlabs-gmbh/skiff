@@ -35,7 +35,8 @@ file is refused until `skiff profile trust` has recorded it.
   `skiff apply NAME [--setup]`, `skiff profile show [--vm NAME] [--render]`,
   `skiff profile init [--global]`, `skiff profile lint`, `skiff profile
   trust`; new flags `--profile FILE`, `--no-profile` and `--trust` on `new`
-  and `apply`. The capability name `profile` is reserved.
+  and `apply`, and `apply --clear` to remove a profile's configuration
+  again. The capability name `profile` is reserved.
 
 ## [0.3.0] - 2026-11-04
 

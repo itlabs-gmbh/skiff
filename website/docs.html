@@ -144,7 +144,7 @@ runs a setup as root in the VM, configures the agents); read it with
           <span class="text">skiff apply agent1</span>
           <button type="button" aria-label="Copy skiff apply agent1 to the clipboard"></button>
         </div>
-        <p><code>apply</code> brings a running VM to the state of the profile after you edited it: grants the profile lists are added, the agent configuration is rewritten and what the old profile wrote and the new one no longer names is removed. The setup does not run again unless you pass <code>--setup</code>, which reinstalls packages, tools and skills and runs your script once more; close the VM's sessions and tunnels first, because the setup must not see the broker. Grants are only ever added; withdraw one with <code>skiff revoke</code>.</p>
+        <p><code>apply</code> brings a running VM to the state of the profile after you edited it: grants the profile lists are added, the agent configuration is rewritten and what the old profile wrote and the new one no longer names is removed. The setup does not run again unless you pass <code>--setup</code>, which reinstalls packages, tools and skills and runs your script once more; close the VM's sessions and tunnels first, because the setup must see neither the broker nor a forwarded SSH agent. Grants are only ever added; withdraw one with <code>skiff revoke</code>.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Change in <code>.skiff</code></th><th>Command</th></tr></thead>
@@ -152,6 +152,7 @@ runs a setup as root in the VM, configures the agents); read it with
               <tr><td>plugin, MCP server, setting or grant added</td><td><code>skiff apply agent1</code></td></tr>
               <tr><td>package, tool or skill added or changed</td><td><code>skiff apply agent1 --setup</code></td></tr>
               <tr><td>grant removed</td><td><code>skiff revoke agent1 CAP</code></td></tr>
+              <tr><td>profile dropped altogether</td><td><code>skiff apply agent1 --clear</code></td></tr>
             </tbody>
           </table>
         </div>

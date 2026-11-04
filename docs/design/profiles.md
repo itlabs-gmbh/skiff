@@ -63,8 +63,10 @@ Sections and where they land:
   runs over plain ssh right after boot, before any grant exists and never
   with a tunnel, so a script cannot reach a credential while it runs (what
   it installs can, once the grants are made; hence the trust above). While
-  it runs, skiff owns the VM's broker claim: an open session or tunnel makes
-  `apply --setup` refuse, a session started meanwhile gets its shell at once
+  it runs, skiff owns the VM's broker claim and an agent lock that sessions
+  forwarding the SSH agent hold shared (`~/.skiff/vms/<vm>.agent.lock`;
+  agent forwarding is not served by the broker, so the claim alone would not
+  cover it): an open session or tunnel makes `apply --setup` refuse, a session started meanwhile gets its shell at once
   but its broker only when the setup ends (standby), and a second setup
   cannot interleave with the first. It runs before the VM's
   grant lock is taken, because `new` and `gc` wait on every VM's lock and a
@@ -109,7 +111,10 @@ Sections and where they land:
   vendors' install scripts from `internal/profile/tools/*.sh`, pinned to
   `/usr/local/bin` so non-interactive ssh sessions find them.
 - **Grants only grow.** `apply` adds the profile's grants and never
-  revokes; removing a grant is a deliberate `skiff revoke`.
+  revokes; removing a grant is a deliberate `skiff revoke`. A profile that
+  declares nothing is refused by `apply`, so a stray `apply` in a directory
+  without a `.skiff` cannot wipe a VM's configuration; `apply --clear` is
+  the explicit way to remove it.
 
 ## Non-goals
 

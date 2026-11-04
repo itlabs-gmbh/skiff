@@ -119,6 +119,18 @@ func (s Store) SaveProfile(vm string, text string) error {
 	return writeAtomic(filepath.Join(dir, profileFile), []byte(text), 0o600)
 }
 
+// RemoveProfile forgets the profile applied to a VM; none is not an error.
+func (s Store) RemoveProfile(vm string) error {
+	dir, err := s.vmDir(vm)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(dir, profileFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove profile: %w", err)
+	}
+	return nil
+}
+
 // Token returns the VM's placeholder token, creating it on first use. The
 // broker never verifies it; it exists for clients that insist on a token.
 func (s Store) Token(vm string) (string, error) {

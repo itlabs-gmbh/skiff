@@ -48,22 +48,35 @@ func (a *App) sshExtraArgs(ctx context.Context, name string) ([]string, func(), 
 		return nil, func() {}, nil
 	}
 	var args []string
+	releaseAgent := func() {}
 	if set.Contains(grant.Grant{Cap: grant.SSHAgent}) {
+		// Held for the session, so a profile setup cannot start while the
+		// agent is forwarded, and refused while a setup holds it.
+		release, err := a.lockAgent(name, false)
+		if errors.Is(err, errAgentLockBusy) {
+			return nil, nil, fmt.Errorf("%s is being set up; the SSH agent is forwarded again when the setup is done", name)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		releaseAgent = release
 		args = append(args, "-A")
 	}
 	if !needsBroker(set) {
-		return args, func() {}, nil
+		return args, releaseAgent, nil
 	}
 	socket, stop, err := a.claimTunnel(ctx, name)
 	switch {
 	case errors.Is(err, broker.ErrBusy):
 		// A `skiff tunnel` or another session owns the broker and its
 		// forward; this session takes over if that owner ends first.
-		return args, a.standby(ctx, name), nil
+		standby := a.standby(ctx, name)
+		return args, func() { standby(); releaseAgent() }, nil
 	case err != nil:
+		releaseAgent()
 		return nil, nil, err
 	}
-	return append(args, brokerForward(socket)...), stop, nil
+	return append(args, brokerForward(socket)...), func() { stop(); releaseAgent() }, nil
 }
 
 // defaultBrokerWatch is how often a session waiting for a broker's owner to
