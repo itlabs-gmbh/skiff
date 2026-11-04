@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,6 +43,15 @@ const (
 	// Mac's still accepts them.
 	clockSkew = 5 * time.Minute
 )
+
+// reservedDomain can never be registered (RFC 2606); permitting only it
+// forbids a name type.
+const reservedDomain = "invalid"
+
+var allIPs = []*net.IPNet{
+	{IP: net.IPv4zero.To4(), Mask: net.CIDRMask(0, 32)},
+	{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)},
+}
 
 // Authority is a VM's intercept CA.
 type Authority struct {
@@ -149,6 +159,12 @@ func create(hosts []string, now func() time.Time) (*Authority, error) {
 		KeyUsage:                    x509.KeyUsageCertSign,
 		PermittedDNSDomainsCritical: true,
 		PermittedDNSDomains:         hosts,
+		// A missing constraint leaves a name type unconstrained, so close the
+		// others explicitly: no IPs at all, and email and URI names only under
+		// the reserved TLD "invalid", which nothing can use.
+		ExcludedIPRanges:        allIPs,
+		PermittedEmailAddresses: []string{reservedDomain},
+		PermittedURIDomains:     []string{reservedDomain},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {

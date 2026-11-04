@@ -8,6 +8,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,6 +197,52 @@ func TestNameConstraintsEnforcedByVerify(t *testing.T) {
 	_, err = forged.Verify(x509.VerifyOptions{DNSName: "www.example.com", Roots: pool(a), CurrentTime: now})
 	if err == nil {
 		t.Fatal("a certificate outside the name constraints verified")
+	}
+}
+
+// DNS constraints alone leave IP, email and URI names unconstrained; the CA
+// must refuse those too.
+func TestNameConstraintsCoverOtherNameTypes(t *testing.T) {
+	now := t0
+	a, _ := mustLoad(t, t.TempDir(), []string{"management.azure.com"}, clockAt(&now))
+	ipURI, err := url.Parse("https://management.azure.com/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		edit func(*x509.Certificate)
+	}{
+		{"ipv4", func(c *x509.Certificate) { c.IPAddresses = []net.IP{net.ParseIP("192.168.64.1")} }},
+		{"ipv6", func(c *x509.Certificate) { c.IPAddresses = []net.IP{net.ParseIP("::1")} }},
+		{"email", func(c *x509.Certificate) { c.EmailAddresses = []string{"root@example.com"} }},
+		{"uri", func(c *x509.Certificate) { c.URIs = []*url.URL{ipURI} }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tmpl := &x509.Certificate{
+				SerialNumber: big.NewInt(43),
+				NotBefore:    now.Add(-time.Hour),
+				NotAfter:     now.Add(time.Hour),
+				ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			}
+			tt.edit(tmpl)
+			der, err := x509.CreateCertificate(rand.Reader, tmpl, a.cert, &key.PublicKey, a.key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			forged, err := x509.ParseCertificate(der)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := forged.Verify(x509.VerifyOptions{Roots: pool(a), CurrentTime: now}); err == nil {
+				t.Fatal("a certificate with a non-DNS name verified")
+			}
+		})
 	}
 }
 
