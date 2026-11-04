@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -13,13 +14,28 @@ import (
 // http_unix_socket: they keep their real host name and path, and the broker
 // picks the route by the Host header. strip_headers and allow_headers of the
 // proxy apply to routes as well.
+//
+// An intercept route also serves clients that insist on https:// to Host:
+// the guest resolves Host to the broker, which terminates TLS with the VM's
+// intercept CA (see docs/design/credential-intercept.md).
 type Route struct {
 	// Host is the host name the client sends, without a port.
 	Host string `toml:"host"`
-	// Upstream is the base URL requests for Host are forwarded to.
+	// Upstream is the base URL requests for Host are forwarded to. Intercept
+	// routes may leave it empty to mean https://<Host>.
 	Upstream string `toml:"upstream"`
 	// Headers are set on every upstream request, like proxy.headers.
 	Headers map[string]string `toml:"headers"`
+	// Intercept makes the broker terminate TLS for Host.
+	Intercept bool `toml:"intercept"`
+}
+
+// UpstreamURL is where requests for the route go.
+func (r Route) UpstreamURL() string {
+	if r.Upstream == "" && r.Intercept {
+		return "https://" + r.Host
+	}
+	return r.Upstream
 }
 
 var hostRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
@@ -45,10 +61,15 @@ func (p Proxy) validateRoutes() []string {
 			problems = append(problems, fmt.Sprintf("%s: host %s is routed twice", at, r.Host))
 		}
 		seen[r.Host] = true
-		if err := validateUpstream(r.Upstream); err != nil {
+		if err := validateUpstream(r.UpstreamURL()); err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", at, err))
 		}
 		problems = append(problems, validateHeaders(at+".headers", r.Headers)...)
+		// Without a credential an intercept route only widens what the
+		// guest trusts the VM's CA for.
+		if r.Intercept && len(r.Headers) == 0 {
+			problems = append(problems, at+": an intercept route must inject at least one header")
+		}
 	}
 	return problems
 }
@@ -99,6 +120,26 @@ func (s Set) RouteFor(host string) (Cap, Route, bool) {
 		}
 	}
 	return Cap{}, Route{}, false
+}
+
+// InterceptHosts lists the hosts the granted capabilities intercept, sorted
+// and without duplicates. Unknown names are ignored: a grant may outlive
+// the capability file it names.
+func (s Set) InterceptHosts(granted []string) []string {
+	var hosts []string
+	for _, name := range granted {
+		c, ok := s[name]
+		if !ok || c.Proxy == nil {
+			continue
+		}
+		for _, r := range c.Proxy.Routes {
+			if r.Intercept {
+				hosts = append(hosts, r.Host)
+			}
+		}
+	}
+	slices.Sort(hosts)
+	return slices.Compact(hosts)
 }
 
 // Validate checks rules that span capabilities: a host may be routed by one

@@ -24,7 +24,7 @@ var alwaysKeep = []string{"Content-Type", "Content-Length", "Content-Encoding", 
 func (b *Broker) newProxy(c cap.Cap, route *cap.Route) (http.Handler, error) {
 	raw, headers := c.Proxy.Upstream, c.Proxy.Headers
 	if route != nil {
-		raw, headers = route.Upstream, route.Headers
+		raw, headers = route.UpstreamURL(), route.Headers
 	}
 	upstream, err := url.Parse(raw)
 	if err != nil {
