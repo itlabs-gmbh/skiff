@@ -1,8 +1,9 @@
 // Package intercept holds the TLS side of the broker's intercept routes: a
 // per-VM certificate authority whose key never leaves the Mac. The guest
 // trusts only its certificate, which is name-constrained to the hosts the
-// VM's capabilities intercept, so even a leaked key could not vouch for any
-// other site. See docs/design/credential-intercept.md.
+// VM's capabilities intercept and the names below them (X.509 DNS
+// constraints always include subdomains), so even a leaked key could not
+// vouch for any other site. See docs/design/credential-intercept.md.
 package intercept
 
 import (
@@ -27,8 +28,9 @@ import (
 )
 
 const (
-	certFile = "ca.pem"
-	keyFile  = "ca.key"
+	// caFile holds certificate and key together, so one rename replaces
+	// both and no reader ever sees a mismatched pair.
+	caFile = "ca.pem"
 
 	// caValidity is how long a CA lives; it is renewed caRenewBefore its end
 	// the next time the VM is provisioned.
@@ -193,28 +195,35 @@ func newAuthority(der []byte, key *ecdsa.PrivateKey, now func() time.Time) (*Aut
 // load reads the CA from dir; a missing CA is fs.ErrNotExist, a damaged one
 // is an error rather than a reason to replace it silently.
 func load(dir string, now func() time.Time) (*Authority, error) {
-	certPEM, err := os.ReadFile(filepath.Join(dir, certFile))
+	data, err := os.ReadFile(filepath.Join(dir, caFile))
 	if err != nil {
 		return nil, fmt.Errorf("read intercept CA: %w", err)
 	}
-	keyPEM, err := os.ReadFile(filepath.Join(dir, keyFile))
-	if err != nil {
-		return nil, fmt.Errorf("read intercept CA key: %w", err)
+	var certDER []byte
+	var key *ecdsa.PrivateKey
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		switch block.Type {
+		case "CERTIFICATE":
+			certDER = block.Bytes
+		case "EC PRIVATE KEY":
+			if key, err = x509.ParseECPrivateKey(block.Bytes); err != nil {
+				return nil, fmt.Errorf("intercept CA key in %s: %w", dir, err)
+			}
+		}
 	}
-	certBlock, _ := pem.Decode(certPEM)
-	keyBlock, _ := pem.Decode(keyPEM)
-	if certBlock == nil || keyBlock == nil {
-		return nil, fmt.Errorf("intercept CA in %s is damaged; remove %s and %s to issue a new one", dir, certFile, keyFile)
+	if certDER == nil || key == nil {
+		return nil, fmt.Errorf("intercept CA in %s is damaged; remove %s to issue a new one and re-run skiff grant", dir, caFile)
 	}
-	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("intercept CA key in %s: %w", dir, err)
-	}
-	return newAuthority(certBlock.Bytes, key, now)
+	return newAuthority(certDER, key, now)
 }
 
-// save writes key and certificate, each through a temporary file so a crash
-// never leaves half a file behind.
+// save writes certificate and key into one 0600 file through a temporary
+// file, so a crash never leaves half a CA behind.
 func (a *Authority) save(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
@@ -224,10 +233,7 @@ func (a *Authority) save(dir string) error {
 		return fmt.Errorf("encode intercept CA key: %w", err)
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	if err := writeAtomic(filepath.Join(dir, keyFile), keyPEM, 0o600); err != nil {
-		return err
-	}
-	return writeAtomic(filepath.Join(dir, certFile), a.certPEM, 0o644)
+	return writeAtomic(filepath.Join(dir, caFile), append(slices.Clone(a.certPEM), keyPEM...), 0o600)
 }
 
 func writeAtomic(path string, data []byte, mode os.FileMode) error {

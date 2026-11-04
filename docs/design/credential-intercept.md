@@ -127,13 +127,18 @@ express wildcards (see Open questions).
   anything else to today's HTTP handler. One tunnel, one socket, no new
   forward.
 - **Per-VM CA.** ECDSA P-256, `IsCA`, `MaxPathLenZero`, name constraints
-  (critical) limited to the intercept hosts of the VM's granted capabilities.
-  The key is created on the first intercept grant, kept on the Mac under
-  `~/.skiff/vms/<vm>/` (0600) and deleted with the VM and by `skiff gc`. The
-  CA is re-issued (and the guest reprovisioned) only when a grant needs a
-  host the CA does not cover yet. Revokes do not shrink it: grants are
-  checked per request, and the constraints only matter if the key leaves the
-  Mac.
+  (critical): DNS names limited to the intercept hosts of the VM's granted
+  capabilities and the names below them (X.509 DNS constraints always cover
+  subdomains), no IP addresses, email and URI names only under the reserved
+  TLD `invalid`. Certificate and key live together in
+  `~/.skiff/vms/<vm>/intercept/ca.pem` (0600, replaced by one rename), are
+  created on the first intercept grant and go with the VM's state (`skiff
+  rm`, `skiff gc`, a new VM of the same name). The CA is re-issued (and the
+  guest reprovisioned) only when a grant needs a host the CA does not cover
+  yet. Revokes do not shrink it: grants are checked per request, and the
+  constraints only matter if the key leaves the Mac. The broker reads the CA
+  through a watcher per handshake, so a CA created or re-issued while the
+  tunnel is up applies without a restart.
 - **Leaf certificates** are issued on demand per host, valid 24 h, cached in
   memory.
 - **Routing.** SNI must name an intercept route of a capability the VM is
@@ -262,6 +267,10 @@ cluster CA), anything over SSH.
 2. **Secret TTL.** `cmd:` results are cached 60 s; access tokens live 60–90
    min. A per-reference TTL (or reading `expires_on`) would save an az call
    per minute and route.
-3. **CA key storage.** File with 0600 under `~/.skiff/vms/<vm>/` versus
-   Keychain.
-4. **HTTP/2.** Needed for gRPC clients (GCP); not for phase 1–3.
+3. **HTTP/2.** Needed for gRPC clients (GCP); not for phase 1–3.
+4. **Percent-encoded paths.** `unsafePath` refuses `%` in every broker
+   path, intercepted ones included. That is needed for `/<cap>/` paths;
+   whether real ARM or Graph calls hit it is to be checked in the e2e run.
+
+Decided: the CA key is a 0600 file (like `~/.skiff/id_ed25519`), not a
+Keychain item.

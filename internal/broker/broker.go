@@ -19,11 +19,19 @@ import (
 
 	"github.com/sovyn-eu/skiff/internal/cap"
 	"github.com/sovyn-eu/skiff/internal/grant"
+	"github.com/sovyn-eu/skiff/internal/intercept"
 )
 
 // SecretResolver resolves cap secret references.
 type SecretResolver interface {
 	Resolve(ctx context.Context, ref string) (string, error)
+}
+
+// CASource yields the VM's current intercept CA, or nil when it has none.
+// It is consulted per handshake, so a CA that a grant creates or re-issues
+// while the tunnel is up applies without a restart.
+type CASource interface {
+	Current() (*intercept.Authority, error)
 }
 
 // GrantSource returns the VM's current grants; it is consulted per request so
@@ -46,6 +54,9 @@ type Broker struct {
 	Warn func(string)
 	// Transport overrides the upstream transport (tests).
 	Transport http.RoundTripper
+	// CA yields the VM's intercept CA for TLS on intercept routes; nil
+	// disables interception and leaves the listener untouched.
+	CA CASource
 	// Now is the audit clock.
 	Now func() time.Time
 
@@ -165,6 +176,9 @@ type target struct {
 
 // locate resolves the request's target, answering it itself when there is none.
 func (b *Broker) locate(w http.ResponseWriter, r *http.Request) (target, decision, bool) {
+	if r.TLS != nil {
+		return b.locateIntercepted(w, r)
+	}
 	if c, rt, ok := b.Caps.RouteFor(requestHost(r)); ok {
 		return target{cap: c, route: &rt, rest: r.URL.Path}, decision{}, true
 	}
@@ -276,8 +290,17 @@ func (b *Broker) audit(r *http.Request, d decision, status int) {
 		now = b.Now
 	}
 	// %q keeps a decoded newline in the path from forging a log line.
-	_, err := fmt.Fprintf(log, "%s vm=%s cap=%s %s %s %q %d\n",
-		now().UTC().Format(time.RFC3339), b.VM, orDash(d.cap), d.reason, r.Method, r.URL.Path, status)
+	host := ""
+	if r.TLS != nil {
+		host = " host=" + strings.ToLower(r.TLS.ServerName)
+	}
+	_, err := fmt.Fprintf(log, "%s vm=%s cap=%s %s %s %q %d%s\n",
+		now().UTC().Format(time.RFC3339), b.VM, orDash(d.cap), d.reason, r.Method, r.URL.Path, status, host)
+	b.auditFailed(err)
+}
+
+// auditFailed warns once that the audit log is no longer written.
+func (b *Broker) auditFailed(err error) {
 	if err != nil {
 		b.warnOnce.Do(func() {
 			if b.Warn != nil {

@@ -53,12 +53,12 @@ func TestLoadOrCreateWritesConstrainedCA(t *testing.T) {
 	if want := []string{"graph.microsoft.com", "management.azure.com"}; !slices.Equal(c.PermittedDNSDomains, want) {
 		t.Errorf("PermittedDNSDomains = %v, want %v", c.PermittedDNSDomains, want)
 	}
-	info, err := os.Stat(filepath.Join(dir, keyFile))
+	info, err := os.Stat(filepath.Join(dir, caFile))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("key mode = %v, want 0600", perm)
+		t.Errorf("CA file mode = %v, want 0600 (it holds the key)", perm)
 	}
 	block, _ := pem.Decode(a.CertPEM())
 	if block == nil || block.Type != "CERTIFICATE" {
@@ -106,41 +106,48 @@ func TestLoadOrCreateReuse(t *testing.T) {
 	}
 }
 
-func TestLoadOrCreateRejectsDamagedFiles(t *testing.T) {
-	dir := t.TempDir()
-	mustLoad(t, dir, []string{"a.example.com"}, time.Now)
-	if err := os.WriteFile(filepath.Join(dir, keyFile), []byte("garbage"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := LoadOrCreate(dir, []string{"a.example.com"}, time.Now); err == nil {
-		t.Fatal("expected an error for a damaged key, not a silent new CA")
-	}
-}
-
-func TestLoadOrCreateRejectsMismatchedKey(t *testing.T) {
-	dir, other := t.TempDir(), t.TempDir()
-	mustLoad(t, dir, []string{"a.example.com"}, time.Now)
-	mustLoad(t, other, []string{"a.example.com"}, time.Now)
-	foreign, err := os.ReadFile(filepath.Join(other, keyFile))
+// pemBlocks returns the PEM blocks of the CA file in dir by type.
+func pemBlocks(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, caFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, keyFile), foreign, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := LoadOrCreate(dir, []string{"a.example.com"}, time.Now); err == nil {
-		t.Fatal("expected an error for a key of another CA")
+	out := map[string][]byte{}
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return out
+		}
+		out[block.Type] = pem.EncodeToMemory(block)
 	}
 }
 
-func TestLoadOrCreateRejectsMissingKey(t *testing.T) {
-	dir := t.TempDir()
+// A damaged CA must be an error, never a reason to issue a new one
+// silently: the guest would stop trusting the broker without a word.
+func TestLoadOrCreateRejectsDamagedCA(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
 	mustLoad(t, dir, []string{"a.example.com"}, time.Now)
-	if err := os.Remove(filepath.Join(dir, keyFile)); err != nil {
-		t.Fatal(err)
+	mustLoad(t, other, []string{"a.example.com"}, time.Now)
+	own, foreign := pemBlocks(t, dir), pemBlocks(t, other)
+	tests := []struct {
+		name    string
+		content []byte
+	}{
+		{"garbage", []byte("garbage")},
+		{"certificate without key", own["CERTIFICATE"]},
+		{"key of another CA", append(append([]byte{}, own["CERTIFICATE"]...), foreign["EC PRIVATE KEY"]...)},
 	}
-	if _, created, err := LoadOrCreate(dir, []string{"a.example.com"}, time.Now); err != nil || !created {
-		t.Fatalf("missing key: created=%v err=%v, want a new CA", created, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := os.WriteFile(filepath.Join(dir, caFile), tt.content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := LoadOrCreate(dir, []string{"a.example.com"}, time.Now); err == nil {
+				t.Fatal("expected an error, not a silent new CA")
+			}
+		})
 	}
 }
 
