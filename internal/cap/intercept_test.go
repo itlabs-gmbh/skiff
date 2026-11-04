@@ -107,3 +107,33 @@ func TestSetInterceptHosts(t *testing.T) {
 		})
 	}
 }
+
+// The skeleton's commented intercept example must be valid once a user
+// uncomments it.
+func TestSkeletonInterceptExampleParses(t *testing.T) {
+	text, err := Skeleton("mything")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	inExample := false
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "# [[proxy.routes]]") {
+			inExample = true
+		}
+		if inExample && !strings.HasPrefix(line, "# ") {
+			inExample = false
+		}
+		if inExample {
+			line = strings.TrimPrefix(line, "# ")
+		}
+		out = append(out, line)
+	}
+	c, err := Parse(strings.Join(out, "\n"), "skeleton")
+	if err != nil {
+		t.Fatalf("uncommented intercept example: %v", err)
+	}
+	if len(c.Proxy.Routes) != 1 || !c.Proxy.Routes[0].Intercept {
+		t.Fatalf("routes = %+v", c.Proxy.Routes)
+	}
+}

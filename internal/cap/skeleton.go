@@ -21,6 +21,16 @@ upstream = "https://api.example.com"
 [proxy.headers]
 Authorization = "Bearer {{ secret \"keychain:skiff/%s-token\" }}"
 
+# Clients that insist on https:// to a fixed host (the Azure CLI, most SDKs)
+# use an intercept route: the guest resolves the host to the broker, which
+# terminates TLS with the VM's own CA and injects the headers. The upstream
+# defaults to https://<host>; list every host by name, wildcards do not exist.
+# [[proxy.routes]]
+# host = "api.example.com"
+# intercept = true
+# [proxy.routes.headers]
+# Authorization = "Bearer {{ secret \"keychain:skiff/%s-token\" }}"
+
 # --- mcp: run a stdio MCP server on the Mac, exposed as HTTP MCP in the guest
 # [mcp]
 # command = "npx"
@@ -43,5 +53,5 @@ EXAMPLE_BASE_URL = "{{ .BrokerURL }}/%s"
 # path = "/root/.claude.json"
 # key = "mcpServers.%s"
 # value = { type = "http", url = "{{ .BrokerURL }}/%s" }
-`, name, name, name, name, name, name, name, name), nil
+`, name, name, name, name, name, name, name, name, name), nil
 }
