@@ -249,7 +249,7 @@ claude ──► 127.0.0.1:7777/claude/v1/messages
         </div>
         <p>See the exact files with <code>skiff cap show claude</code>, and what one specific VM receives with <code>skiff cap show github --render --vm agent1</code>. A file of the same name in <code>~/.skiff/caps</code> replaces a built-in one.</p>
         <p>Claude Code runs unmodified and sends exactly the headers of a normal subscription login; the broker only swaps the token. Usage counts against your own plan. Anthropic's terms allow signing in to the unmodified binary with your own subscription, including in sandboxes you run, but not routing other people's requests through your account. Keep the broker personal.</p>
-        <p>GitHub downloads that redirect to other hosts (<code>gh release download</code>) do not work through the broker, and percent-encoded paths are refused.</p>
+        <p>GitHub downloads that redirect to other hosts (<code>gh release download</code>) do not work through the broker, and percent-encoded paths are refused (intercept routes are the exception, see <a href="#intercept">below</a>).</p>
       </section>
 
       <section id="primitives">
@@ -263,6 +263,7 @@ claude ──► 127.0.0.1:7777/claude/v1/messages
           <li>The guest's own credential headers are always removed: <code>Authorization</code>, <code>Proxy-Authorization</code>, <code>Cookie</code>, <code>X-Api-Key</code>, <code>Api-Key</code>, <code>X-Auth-Token</code>, <code>Private-Token</code>, <code>X-Github-Token</code>, <code>X-Goog-Api-Key</code>, <code>X-Amz-Security-Token</code>, <code>X-Access-Token</code>. A guest can neither smuggle its own credential upstream nor override the injected one.</li>
           <li><code>strip_headers</code> removes more. <code>allow_headers</code> turns the filter into an allow list; <code>Content-Type</code>, <code>Content-Length</code>, <code>Content-Encoding</code>, <code>Accept</code> and <code>Accept-Encoding</code> always survive.</li>
           <li id="routes"><code>[[proxy.routes]]</code> serve clients that cannot take a base URL but can be pointed at a Unix socket, such as gh through <code>.BrokerSocket</code>: they keep their real host name and path, and the broker picks the route by the <code>Host</code> header, with its own upstream and headers. Route hosts must be public DNS names, never an IP or <code>localhost</code>, and each host may be routed by one capability only, so no capability can catch the requests of another.</li>
+          <li id="intercept">A route with <code>intercept = true</code> serves clients that cannot be redirected at all and insist on <code>https://</code> to a fixed host, such as the Azure CLI and SDKs. While it is granted, the guest resolves the host to the broker, which terminates TLS with a certificate from the VM's own CA and forwards with the route's headers; the guest's placeholder never reaches the upstream. The handshake only succeeds for intercept routes of capabilities the VM is granted, and every request's <code>Host</code> must match the TLS server name. The upstream defaults to <code>https://&lt;host&gt;</code> and may not have a path; the request path is forwarded as is, percent-encoding included. Hosts are listed by name, there are no wildcards: under a suffix where others can host content, the credential would go to them.</li>
           <li>Responses are flushed as they arrive, so server-sent events and streaming completions work.</li>
           <li>If the upstream is unreachable or a secret cannot be resolved, the guest gets a generic <code>502</code>; the details are in the audit log on the Mac.</li>
         </ul>
@@ -338,7 +339,7 @@ OPENAI_API_KEY = "{{ .PseudoToken }}"</pre>
           <span class="text">skiff grant agent1 openai</span>
           <button type="button" aria-label="Copy skiff grant agent1 openai to the clipboard"></button>
         </div>
-        <p>Two more complete examples ship in the repository: <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/chrome-devtools.toml"><code>chrome-devtools.toml</code></a> bridges the Chrome DevTools MCP server from the Mac, <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/gh-api.toml"><code>gh-api.toml</code></a> answers read-only GitHub API calls with <code>gh</code> on the Mac through <code>exec</code>.</p>
+        <p>More complete examples ship in the repository: <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/chrome-devtools.toml"><code>chrome-devtools.toml</code></a> bridges the Chrome DevTools MCP server from the Mac, <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/gh-api.toml"><code>gh-api.toml</code></a> answers read-only GitHub API calls with <code>gh</code> on the Mac through <code>exec</code>, and <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure.toml"><code>azure.toml</code></a> with <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure-identity.toml"><code>azure-identity.toml</code></a> runs the Azure CLI through <a href="#intercept">intercept routes</a> with tokens from <code>az</code> on the Mac (see <a href="agents.html#azure">the guide</a>).</p>
 
         <h3>Template data</h3>
         <p>Every guest string and every header is a Go template with these fields:</p>
@@ -363,6 +364,7 @@ OPENAI_API_KEY = "{{ .PseudoToken }}"</pre>
           <li><strong><code>guest.files</code></strong> are written whole, with an optional octal <code>mode</code>.</li>
           <li><strong><code>guest.blocks</code></strong> are managed sections inside files other tools also write, such as <code>/etc/gitconfig</code>. Marker comments name the capability, so several capabilities can share one file and <code>revoke</code> removes exactly its own block. <code>comment</code> picks the marker syntax: <code>#</code> (default), <code>;</code> or <code>//</code>.</li>
           <li><strong><code>guest.json_merge</code></strong> sets one dotted key in a JSON file, creating the file if needed. Use it for <code>mcpServers.&lt;name&gt;</code> in <code>/root/.claude.json</code>.</li>
+          <li><strong>Intercept routes</strong> need no guest section. While one is granted, skiff adds the VM's CA certificate to the system trust store, a block in <code>/etc/hosts</code> that sends the intercepted hosts to <code>127.77.0.1</code>, a systemd socket there on port 443 that relays into the tunnel, and <code>REQUESTS_CA_BUNDLE</code>, <code>SSL_CERT_FILE</code> and <code>NODE_EXTRA_CA_CERTS</code> so Python, Go and Node trust the CA. The CA's key stays on the Mac in <code>~/.skiff/vms/&lt;vm&gt;/intercept/</code> and goes with the VM; <code>revoke</code> removes all of it from the guest.</li>
         </ul>
         <p>Everything is rendered on the Mac and applied over SSH with plain POSIX tools, so the guest image needs nothing skiff-specific. Two granted capabilities may not set the same variable, file or JSON key; <code>grant</code> refuses the combination and names both.</p>
       </section>
@@ -382,6 +384,7 @@ OPENAI_API_KEY = "{{ .PseudoToken }}"</pre>
               <tr><td><code>proxy.allow_headers</code></td><td>if set, the only guest headers passed through (plus the always-kept five)</td></tr>
               <tr><td><code>[[proxy.routes]] host</code></td><td>a public DNS name with a dot; no IPs, no <code>localhost</code>. Each host may be routed by one capability only.</td></tr>
               <tr><td><code>routes.upstream</code>, <code>[proxy.routes.headers]</code></td><td>like the proxy's own; <code>strip_headers</code>/<code>allow_headers</code> apply as well</td></tr>
+              <tr><td><code>routes.intercept</code></td><td><code>true</code> to terminate TLS for <code>host</code> (see <a href="#intercept">intercept routes</a>); the route must inject at least one header, and its <code>upstream</code> may be left out (<code>https://&lt;host&gt;</code>) but may not have a path</td></tr>
               <tr><td><code>[mcp] command</code>, <code>args</code>, <code>env</code></td><td>the stdio MCP server to run on the Mac</td></tr>
               <tr><td><code>[exec] command</code>, <code>args</code></td><td>the program to run per request on the Mac</td></tr>
               <tr><td><code>[guest.env]</code></td><td>variable → template; names <code>[A-Z_][A-Z0-9_]*</code></td></tr>
@@ -437,8 +440,10 @@ install as ~/.skiff/caps/gemini.toml? [y/N]</pre>
 <pre class="code">2026-10-08T09:10:02Z vm=agent1 tunnel=open
 2026-10-08T09:12:44Z vm=agent1 cap=github <span class="hl">allow</span> GET "/github/acme/app/info/refs" 200
 2026-10-08T09:12:51Z vm=agent1 cap=claude <span class="hl">allow</span> POST "/claude/v1/messages" 200
-2026-10-08T09:13:05Z vm=agent2 cap=github <span class="hl">denied</span> GET "/github/acme/app/info/refs" 403</pre>
-        <p>The decision is one of <code>allow</code>, <code>denied</code>, <code>unknown cap</code>, <code>no cap</code>, <code>unsafe path</code>, <code>grants</code> or <code>setup</code>. Host-side diagnostics, such as a missing Keychain item or an MCP server's stderr, appear as indented lines underneath. The guest only ever sees a generic message, so paths, commands and item names stay on the Mac.</p>
+2026-10-08T09:13:05Z vm=agent2 cap=github <span class="hl">denied</span> GET "/github/acme/app/info/refs" 403
+2026-11-04T08:40:04Z vm=agent1 cap=azure <span class="hl">allow</span> GET "/subscriptions" 200 host="management.azure.com"
+2026-11-04T08:41:12Z vm=agent2 cap=azure <span class="hl">deny</span> TLS "management.azure.com" "not granted; skiff grant agent2 azure"</pre>
+        <p>The decision is one of <code>allow</code>, <code>denied</code>, <code>unknown cap</code>, <code>no cap</code>, <code>unsafe path</code>, <code>grants</code>, <code>setup</code>, and for intercepted requests <code>host mismatch</code> or <code>not intercepted</code>; those lines end with the TLS server name as <code>host="…"</code>. A refused TLS handshake has no request, so it is logged as <code>deny TLS</code> with the server name and the reason. Host-side diagnostics, such as a missing Keychain item or an MCP server's stderr, appear as indented lines underneath. The guest only ever sees a generic message, so paths, commands and item names stay on the Mac.</p>
         <p>A denied request tells the guest exactly what would allow it, which also tells an agent what to ask you for:</p>
 <pre class="code">$ curl -s 127.0.0.1:7777/github/acme/app/info/refs
 {"error":"github is not granted to agent2","hint":"skiff grant agent2 github"}</pre>
@@ -453,6 +458,7 @@ install as ~/.skiff/caps/gemini.toml? [y/N]</pre>
           <li><strong>Default deny, re-checked per request.</strong> A revoke applies to the next request, not the next session.</li>
           <li><strong>Time-boxed.</strong> No session, no broker. The hole is open while you are working with the VM, not while it merely runs.</li>
           <li><strong>Reviewable.</strong> The secrets a capability can send are fixed in its file and shown before installation; upstreams must use TLS; route hosts cannot be <code>localhost</code> or an IP and cannot catch another capability's traffic.</li>
+          <li><strong>Interception is narrow.</strong> Each VM has its own CA, whose key never leaves the Mac. Its certificate only vouches for the intercepted hosts and the names below them, never for IP addresses, so even a leaked key could not impersonate other sites. The broker terminates TLS only for named intercept routes of granted capabilities and passes nothing else through; every other connection from the guest goes its normal way.</li>
         </ul>
         <h3>What it does not do</h3>
         <ul>
