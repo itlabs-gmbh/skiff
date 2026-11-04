@@ -1,0 +1,14 @@
+# Spike: Azure CLI in the guest via a managed-identity endpoint served by the
+# broker. Tokens are minted by the az CLI on the Mac (see skiff-cap-azure).
+#   cp spike/azure/azure.toml ~/.skiff/caps/ && skiff grant <vm> azure
+#   in the guest: az login --identity
+
+name = "azure"
+description = "Azure CLI via a managed-identity endpoint; tokens come from az on the Mac"
+
+[exec]
+command = "/Users/flofi/.bb/plugins/environment-git-worktree/host-data/worktrees/thr_pyzgfk9gt4-1/skiff/spike/azure/skiff-cap-azure"
+
+[guest.env]
+IDENTITY_ENDPOINT = "{{ .BrokerURL }}/azure"
+IDENTITY_HEADER = "{{ .PseudoToken }}"

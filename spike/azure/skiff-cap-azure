@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Spike: an Azure managed-identity token endpoint behind skiff's exec primitive.
+
+The guest's az CLI sees IDENTITY_ENDPOINT/IDENTITY_HEADER, believes it runs on
+App Service and asks this program (through the broker) for an access token:
+
+    GET <endpoint>?api-version=2019-08-01&resource=<resource>
+
+The token comes from the az CLI on the Mac, so the refresh token never leaves
+it. Only short-lived access tokens for allow-listed resources reach the guest.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import urllib.parse
+
+# Resources the guest may obtain tokens for, compared without trailing slash.
+ALLOWED_RESOURCES = {
+    "https://management.core.windows.net",  # what az asks for as ARM
+    "https://management.azure.com",
+    "https://graph.microsoft.com",
+    "https://vault.azure.net",
+    "https://storage.azure.com",
+}
+
+# Parameters that select a user-assigned identity; the Mac's login is the only one.
+IDENTITY_SELECTORS = ("client_id", "object_id", "mi_res_id", "principal_id")
+
+AZ_TIMEOUT_SECONDS = 60
+
+
+def fail(message):
+    print(f"skiff-cap-azure: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def requested_resource():
+    if os.environ.get("SKIFF_METHOD") != "GET":
+        fail("only GET is allowed")
+    query = urllib.parse.parse_qs(os.environ.get("SKIFF_QUERY", ""))
+    if any(key in query for key in IDENTITY_SELECTORS):
+        fail("user-assigned identities are not supported")
+    resources = query.get("resource", [])
+    if len(resources) != 1:
+        fail("exactly one resource parameter is required")
+    resource = resources[0]
+    if resource.rstrip("/") not in ALLOWED_RESOURCES:
+        fail(f"resource {resource!r} is not allowed")
+    return resource
+
+
+def host_token(resource):
+    try:
+        done = subprocess.run(
+            ["az", "account", "get-access-token", "--resource", resource, "--output", "json"],
+            capture_output=True, text=True, timeout=AZ_TIMEOUT_SECONDS, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as err:
+        fail(f"az on the host failed: {err}")
+    if done.returncode != 0:
+        fail(f"az on the host failed: {done.stderr.strip().splitlines()[-1:]}")
+    try:
+        return json.loads(done.stdout)
+    except json.JSONDecodeError:
+        fail("az on the host returned no JSON")
+
+
+def main():
+    resource = requested_resource()
+    token = host_token(resource)
+    # App Service's response shape; MSAL only needs access_token and expires_on.
+    json.dump({
+        "access_token": token["accessToken"],
+        "expires_on": str(token["expires_on"]),
+        "resource": resource,
+        "token_type": token.get("tokenType", "Bearer"),
+    }, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
