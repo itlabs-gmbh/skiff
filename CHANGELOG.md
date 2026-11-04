@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-11-04
+
+Capabilities now also serve clients that insist on `https://` to fixed hosts,
+such as the Azure CLI, without a credential in the VM. Nothing changes for
+existing capabilities; no `skiff prepare` or new VMs are needed, and an
+intercept capability takes effect with the next `skiff grant`.
+
 ### Added
 
 - **Intercept routes for HTTPS-only clients.** A proxy route with
@@ -25,6 +34,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 - Broker connections that stay idle between requests are closed after two
   minutes.
+- A connection to the broker that sends nothing for 10 seconds is closed
+  (it was 30); the broker reads the first byte to tell TLS from HTTP.
 
 ## [0.1.1] - 2026-10-30
 
@@ -234,7 +245,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sovyn-eu/skiff/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/sovyn-eu/skiff/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/sovyn-eu/skiff/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/sovyn-eu/skiff/releases/tag/v0.0.1
