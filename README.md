@@ -171,7 +171,9 @@ or tunnel that owns the broker ends first, the remaining session takes it over
 within a few seconds.
 
 Grants are the only policy: default deny, one file per VM in `~/.skiff/vms/`,
-checked on every request and logged to `~/.skiff/audit.log`. A denied request
+checked on every request and logged to `~/.skiff/audit.log`. Capability files
+are read when the broker starts: after adding or changing one, close the VM's
+sessions and tunnels and start a new one. A denied request
 answers with the exact `skiff grant` command that would allow it. A grant is
 all or nothing per capability: what a granted VM can reach is what the
 credential behind it can reach. Limit that at the source, for GitHub with a
@@ -228,7 +230,8 @@ headers, so the guest's placeholder never reaches the upstream. The CA is
 name-constrained to the intercepted hosts and their subdomains, and a revoke
 removes hosts entry, socket and CA from the guest. Hosts are listed by name;
 there are no wildcards. `examples/caps/azure.toml` with `azure-identity.toml`
-runs `az` this way, and `make e2e-intercept` tests the mechanism against a
+runs `az` this way, `examples/caps/azure-devops.toml` git, REST and Artifacts
+for Azure DevOps without a PAT, and `make e2e-intercept` tests the mechanism against a
 real VM. Design and trade-offs: `docs/design/credential-intercept.md`.
 
 The embedded `claude` capability points `ANTHROPIC_BASE_URL` at the broker and

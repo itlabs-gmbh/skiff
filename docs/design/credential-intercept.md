@@ -244,7 +244,15 @@ cluster CA), anything over SSH.
    acceptance test for phase 1. Done: `azure.toml`, `azure-identity.toml`
    and `azure-identity.sh`; the spikes are deleted.
 3. **Azure DevOps via Entra tokens** as an example user capability; evaluate
-   whether `github` should move to intercept.
+   whether `github` should move to intercept. Done for Azure DevOps:
+   `examples/caps/azure-devops.toml`. A spike (kept in commit 2e10ea5)
+   showed that a token `az` mints for resource
+   `499b84ac-1321-427f-aa17-267ca6975798` works for git (clone, push
+   dry-run), REST, feeds and `pkgs.dev.azure.com`; package content then comes
+   from a signed redirect to `*.blob.core.windows.net`. `org@dev.azure.com`
+   URLs work without `insteadOf`. `az devops` also needs `azure.toml`,
+   because `az login --identity` lists subscriptions on Resource Manager.
+   `github` stays as it is for now.
 4. **AWS and GCP** (SigV4 port, credentials and metadata endpoints),
    depending on the wildcard and HTTP/2 decisions.
 

@@ -7,7 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Azure DevOps example capability.** `examples/caps/azure-devops.toml`
+  serves git over HTTPS, the REST API, Artifacts feeds and package downloads
+  and, together with `azure.toml` and `azure-identity.toml`, `az devops`
+  through intercept routes. The token is an Entra token that `az` on the Mac
+  mints for Azure DevOps, so no PAT is needed, and
+  `https://<org>@dev.azure.com/...` URLs work without an `insteadOf` per
+  organization.
 
 ## [0.2.1] - 2026-11-04
 

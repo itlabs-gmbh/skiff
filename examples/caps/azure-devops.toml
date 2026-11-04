@@ -1,0 +1,83 @@
+# Azure DevOps in the guest (git, REST, Artifacts, az devops) without a PAT
+# and without a credential in the VM.
+#
+# The broker intercepts the Azure DevOps hosts below and sets a token that the
+# az CLI on the Mac mints for Azure DevOps (resource
+# 499b84ac-1321-427f-aa17-267ca6975798). git, curl and package managers in the
+# guest use the real https://dev.azure.com URLs, including the
+# https://<org>@dev.azure.com/... form the Clone button offers; nothing is
+# configured for them in the guest.
+#
+#   az login                                         # once, on the Mac
+#   cp examples/caps/azure-devops.toml ~/.skiff/caps/
+#   skiff grant agent1 azure-devops
+#   # in the guest:
+#   git clone https://dev.azure.com/<org>/<project>/_git/<repo>
+#
+# az devops in the guest also needs azure.toml and azure-identity.toml, since
+# az login --identity lists subscriptions on Resource Manager:
+#
+#   skiff grant agent1 azure-devops azure azure-identity
+#   # in the guest, after installing az:
+#   az login --identity && az extension add -n azure-devops
+#   az devops project list --org https://dev.azure.com/<org>
+#
+# The VM can do in Azure DevOps what your az login can do there, in every
+# organization of your tenant. For narrower rights log in once with
+# AZURE_CONFIG_DIR=$HOME/.azure-skiff az login as a dedicated user or service
+# principal and prefix every az below with AZURE_CONFIG_DIR=$HOME/.azure-skiff.
+# SSH remotes (git@ssh.dev.azure.com) are not intercepted; use the ssh-agent
+# grant for them.
+#
+# Replacing a PAT-based azure-devops.toml: copy this file over it, run
+# skiff grant again for the VMs that use it, then close their skiff ssh and
+# skiff tunnel sessions and start a new one. A running broker keeps the
+# capability files it started with.
+#
+# The broker caches the token for 60 seconds; a refresh runs az once.
+
+name = "azure-devops"
+description = "Azure DevOps (git, REST, Artifacts) with an Entra token from az on the Mac"
+
+# Also reachable as {{ .BrokerURL }}/azure-devops/ for clients that take a base URL.
+[proxy]
+upstream = "https://dev.azure.com"
+[proxy.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv\" }}"
+
+# Repos (git over HTTPS), the REST API and az devops.
+[[proxy.routes]]
+host = "dev.azure.com"
+intercept = true
+[proxy.routes.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv\" }}"
+
+# Artifacts: feed management ...
+[[proxy.routes]]
+host = "feeds.dev.azure.com"
+intercept = true
+[proxy.routes.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv\" }}"
+
+# ... and package downloads for npm, NuGet, pip and Maven. The package
+# content itself comes from a redirect to *.blob.core.windows.net with a
+# signed URL, which needs no credential and is not intercepted.
+[[proxy.routes]]
+host = "pkgs.dev.azure.com"
+intercept = true
+[proxy.routes.headers]
+Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv\" }}"
+
+# Identities, for az devops user/team commands.
+# [[proxy.routes]]
+# host = "vssps.dev.azure.com"
+# intercept = true
+# [proxy.routes.headers]
+# Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv\" }}"
+
+# An organization still on the old URL form: one route per organization.
+# [[proxy.routes]]
+# host = "myorg.visualstudio.com"
+# intercept = true
+# [proxy.routes.headers]
+# Authorization = "Bearer {{ secret \"cmd:az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv\" }}"

@@ -41,6 +41,7 @@
         <li><a href="#mcp">MCP servers from your Mac</a></li>
         <li><a href="#ssh-keys">SSH keys instead of tokens</a></li>
         <li><a href="#azure">Azure CLI without a token in the VM</a></li>
+        <li><a href="#azure-devops">Azure DevOps without a PAT</a></li>
         <li><a href="#other">Codex, Gemini and others</a></li>
         <li><a href="#runners">Editors and agent runners</a></li>
         <li><a href="#pools">Many agents, side by side</a></li>
@@ -181,6 +182,24 @@
 az login --identity
 az group list -o table</pre>
         <p>The placeholder holds your tenant, object id and user name, nothing secret; regenerate it when your Mac's <code>az</code> login moves to another user or tenant. Key Vaults and storage accounts have one host each: uncomment the examples in <code>azure.toml</code> and list the ones the agent may use by name. The VM can do what your <code>az</code> login can do, and what it may read, Key Vault secret values included, lands in the VM. Prefer a dedicated identity with narrow roles; <code>azure.toml</code> explains how.</p>
+      </section>
+
+      <section id="azure-devops">
+        <h2>Azure DevOps without a PAT</h2>
+        <p>Azure DevOps accepts the Entra token that <code>az</code> on your Mac mints for it, so no personal access token is needed. <code>azure-devops.toml</code> intercepts <code>dev.azure.com</code> and the Artifacts hosts: git, curl and package managers in the guest use the real URLs, including the <code>https://&lt;org&gt;@dev.azure.com/…</code> form the Clone button offers, and nothing is configured for them in the VM.</p>
+        <div class="cmd" data-copy="curl -fsSL --create-dirs -o ~/.skiff/caps/azure-devops.toml https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-devops.toml">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">curl -fsSL --create-dirs -o ~/.skiff/caps/azure-devops.toml https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/azure-devops.toml</span>
+          <button type="button" aria-label="Copy the download command to the clipboard"></button>
+        </div>
+        <div class="cmd" data-copy="skiff cap lint azure-devops &amp;&amp; skiff grant task-42 azure-devops">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">skiff cap lint azure-devops &amp;&amp; skiff grant task-42 azure-devops</span>
+          <button type="button" aria-label="Copy the lint and grant command to the clipboard"></button>
+        </div>
+        <p>In the guest, clone as usual:</p>
+<pre class="code">git clone https://dev.azure.com/&lt;org&gt;/&lt;project&gt;/_git/&lt;repo&gt;</pre>
+        <p>For <code>az devops</code>, grant <code>azure</code> and <code>azure-identity</code> from <a href="#azure">the previous section</a> as well, because <code>az login --identity</code> lists subscriptions on Resource Manager. The VM can do in Azure DevOps what your <code>az</code> login can do, in every organization of your tenant; the file explains how to use a dedicated identity instead. If you already keep a PAT-based <code>azure-devops.toml</code>, this one replaces it under the same name: copy it over, run <code>skiff grant</code> again for the VMs that use it, and close their sessions and tunnels before starting a new one, because a running broker keeps the capability files it started with. SSH remotes are not intercepted; use the <a href="#ssh-keys"><code>ssh-agent</code> grant</a> for them.</p>
       </section>
 
       <section id="other">
