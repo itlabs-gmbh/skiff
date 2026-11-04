@@ -219,6 +219,7 @@ claude ──► 127.0.0.1:7777/claude/v1/messages
         </div>
         <p>While it runs, the broker listens on <code>~/.skiff/run/&lt;vm&gt;.sock</code> (mode <code>0600</code>) and ssh forwards that socket to <code>127.0.0.1:7777</code> in the guest. ssh runs with <code>ExitOnForwardFailure</code>, so a process squatting on port 7777 in the guest makes the session fail instead of silently running without a tunnel.</p>
         <p>For clients that only speak HTTP over a Unix socket (such as <code>gh</code>), the guest additionally gets <code>/run/skiff/broker.sock</code>: a systemd socket that relays to port 7777. It exists while any capability is granted; without an open session its connections are refused.</p>
+        <p>The broker reads the capability files when it starts. Grants are checked on every request, so <code>grant</code> and <code>revoke</code> apply at once to capabilities the broker already knows. A capability file you add, edit or replace while a session runs only takes effect with the next broker: close the VM's sessions and tunnels, then start a new one.</p>
 
         <h3>Several sessions, one broker</h3>
         <p>Each VM has exactly one broker, owned by one process through a lock. A second <code>skiff ssh</code> notices the owner and uses its broker instead of forwarding a second time. If the owner ends first, a remaining session takes over within about two seconds. A forward is only ever made by the owner, so none can outlive the broker it points to.</p>

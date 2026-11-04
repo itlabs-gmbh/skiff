@@ -171,7 +171,9 @@ or tunnel that owns the broker ends first, the remaining session takes it over
 within a few seconds.
 
 Grants are the only policy: default deny, one file per VM in `~/.skiff/vms/`,
-checked on every request and logged to `~/.skiff/audit.log`. A denied request
+checked on every request and logged to `~/.skiff/audit.log`. Capability files
+are read when the broker starts: after adding or changing one, close the VM's
+sessions and tunnels and start a new one. A denied request
 answers with the exact `skiff grant` command that would allow it. A grant is
 all or nothing per capability: what a granted VM can reach is what the
 credential behind it can reach. Limit that at the source, for GitHub with a

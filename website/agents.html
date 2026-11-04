@@ -199,7 +199,7 @@ az group list -o table</pre>
         </div>
         <p>In the guest, clone as usual:</p>
 <pre class="code">git clone https://dev.azure.com/&lt;org&gt;/&lt;project&gt;/_git/&lt;repo&gt;</pre>
-        <p>For <code>az devops</code>, grant <code>azure</code> and <code>azure-identity</code> from <a href="#azure">the previous section</a> as well, because <code>az login --identity</code> lists subscriptions on Resource Manager. The VM can do in Azure DevOps what your <code>az</code> login can do, in every organization of your tenant; the file explains how to use a dedicated identity instead. If you already keep a PAT-based <code>azure-devops.toml</code>, this one replaces it under the same name. SSH remotes are not intercepted; use the <a href="#ssh-keys"><code>ssh-agent</code> grant</a> for them.</p>
+        <p>For <code>az devops</code>, grant <code>azure</code> and <code>azure-identity</code> from <a href="#azure">the previous section</a> as well, because <code>az login --identity</code> lists subscriptions on Resource Manager. The VM can do in Azure DevOps what your <code>az</code> login can do, in every organization of your tenant; the file explains how to use a dedicated identity instead. If you already keep a PAT-based <code>azure-devops.toml</code>, this one replaces it under the same name: copy it over, run <code>skiff grant</code> again for the VMs that use it, and close their sessions and tunnels before starting a new one, because a running broker keeps the capability files it started with. SSH remotes are not intercepted; use the <a href="#ssh-keys"><code>ssh-agent</code> grant</a> for them.</p>
       </section>
 
       <section id="other">

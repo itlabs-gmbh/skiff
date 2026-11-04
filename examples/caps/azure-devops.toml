@@ -29,6 +29,11 @@
 # SSH remotes (git@ssh.dev.azure.com) are not intercepted; use the ssh-agent
 # grant for them.
 #
+# Replacing a PAT-based azure-devops.toml: copy this file over it, run
+# skiff grant again for the VMs that use it, then close their skiff ssh and
+# skiff tunnel sessions and start a new one. A running broker keeps the
+# capability files it started with.
+#
 # The broker caches the token for 60 seconds; a refresh runs az once.
 
 name = "azure-devops"
