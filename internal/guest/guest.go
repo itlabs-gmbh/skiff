@@ -26,11 +26,13 @@ const (
 // Plan is the rendered guest configuration for one VM.
 type Plan struct {
 	// Relay installs the broker socket relay (see relay.go).
-	Relay  bool
-	Env    map[string]string
-	Files  []cap.File
-	Blocks []Block
-	Merges []cap.JSONMerge
+	Relay bool
+	// Intercept, when set, installs interception (see intercept.go).
+	Intercept *Intercept
+	Env       map[string]string
+	Files     []cap.File
+	Blocks    []Block
+	Merges    []cap.JSONMerge
 }
 
 // Block is a rendered managed section; Owner is the cap name and part of
@@ -67,8 +69,8 @@ func Render(caps []cap.Cap, data cap.TemplateData) (Plan, error) {
 			plan.Env[k] = v
 		}
 		for _, f := range c.Guest.Files {
-			if isRelayUnit(f.Path) {
-				return Plan{}, fmt.Errorf("cap %s: %s is reserved for the broker relay", c.Name, f.Path)
+			if isReserved(f.Path) {
+				return Plan{}, fmt.Errorf("cap %s: %s is reserved for skiff", c.Name, f.Path)
 			}
 			if owner, dup := fileOwner[f.Path]; dup {
 				return Plan{}, fmt.Errorf("caps %s and %s both write %s", owner, c.Name, f.Path)
@@ -96,8 +98,8 @@ func Render(caps []cap.Cap, data cap.TemplateData) (Plan, error) {
 			plan.Files = append(plan.Files, cap.File{Path: f.Path, Mode: mode, Content: content})
 		}
 		for _, blk := range c.Guest.Blocks {
-			if isRelayUnit(blk.Path) {
-				return Plan{}, fmt.Errorf("cap %s: %s is reserved for the broker relay", c.Name, blk.Path)
+			if isReserved(blk.Path) {
+				return Plan{}, fmt.Errorf("cap %s: %s is reserved for skiff", c.Name, blk.Path)
 			}
 			if err := validatePath(blk.Path); err != nil {
 				return Plan{}, fmt.Errorf("cap %s: %w", c.Name, err)
@@ -129,8 +131,8 @@ func Render(caps []cap.Cap, data cap.TemplateData) (Plan, error) {
 			plan.Blocks = append(plan.Blocks, Block{Path: blk.Path, Owner: c.Name, Comment: comment, Content: strings.TrimRight(content, "\n") + "\n"})
 		}
 		for _, m := range c.Guest.JSONMerge {
-			if isRelayUnit(m.Path) {
-				return Plan{}, fmt.Errorf("cap %s: %s is reserved for the broker relay", c.Name, m.Path)
+			if isReserved(m.Path) {
+				return Plan{}, fmt.Errorf("cap %s: %s is reserved for skiff", c.Name, m.Path)
 			}
 			id := m.Path + "#" + m.Key
 			if owner, dup := keyOwner[id]; dup {
@@ -166,6 +168,9 @@ func (p Plan) Manifest() []string {
 	var lines []string
 	if p.Relay {
 		lines = append(lines, "file:"+RelaySocketUnit, "file:"+RelayServiceUnit)
+	}
+	if p.Intercept != nil {
+		lines = append(lines, p.Intercept.manifest()...)
 	}
 	for _, f := range p.Files {
 		lines = append(lines, "file:"+f.Path)

@@ -87,20 +87,30 @@ func (p Plan) ApplyScript(st State) (string, error) {
 	b.WriteString("install -d -m 0755 " + path.Dir(ManifestPath) + "\n")
 	stale := p.staleFiles(st)
 	relayGone := !p.Relay && slices.ContainsFunc(stale, isRelayUnit)
+	interceptGone := p.Intercept == nil && slices.ContainsFunc(stale, isInterceptUnit)
 	if relayGone {
 		stopRelay(&b)
+	}
+	if interceptGone {
+		stopIntercept(&b)
 	}
 	for _, f := range stale {
 		b.WriteString("rm -f " + shQuote(f) + "\n")
 	}
-	if relayGone {
+	if relayGone || interceptGone {
 		b.WriteString("if " + asRootOnSystemd + "; then systemctl daemon-reload; fi\n")
+	}
+	if slices.Contains(stale, InterceptCAFile) {
+		b.WriteString(updateTrust("--fresh") + "\n")
 	}
 	for _, f := range p.Files {
 		writeFile(&b, f.Path, f.Mode, []byte(f.Content))
 	}
 	if p.Relay {
 		writeRelay(&b)
+	}
+	if p.Intercept != nil {
+		p.Intercept.write(&b)
 	}
 	for _, stale := range p.staleBlocks(st) {
 		writeBlock(&b, stale.Path, stale.Owner, "", "")
@@ -153,7 +163,7 @@ func (p Plan) staleBlocks(st State) []Block {
 			continue
 		}
 		path, owner, ok := strings.Cut(strings.TrimPrefix(l, "block:"), "#")
-		if !ok || validateManifestPath(path) != nil || cap.ValidateName(owner) != nil {
+		if !ok || validateManifestPath(path) != nil || (cap.ValidateName(owner) != nil && owner != interceptOwner) {
 			continue
 		}
 		stale = append(stale, Block{Path: path, Owner: owner})

@@ -381,7 +381,7 @@ func mustOutput(t *testing.T, script string) []byte {
 
 // rewriteRoot points every absolute guest path in a script at a temp root.
 func rewriteRoot(script, root string) string {
-	re := regexp.MustCompile(`([\s='])/(etc|root)(/|\s|'|$)`)
+	re := regexp.MustCompile(`([\s='])/(etc|root|usr)(/|\s|'|$)`)
 	return re.ReplaceAllString(script, "${1}"+root+"/${2}${3}")
 }
 
