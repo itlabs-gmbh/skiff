@@ -138,6 +138,12 @@ url = "https://mcp.context7.com/mcp"</pre>
 runs a setup as root in the VM, configures the agents); read it with
 'skiff profile show --render', then 'skiff profile trust' or --trust, or pass --no-profile</pre>
         <p><code>skiff profile trust</code> records the file's SHA-256 and path in <code>~/.skiff/trusted</code>, like direnv's <code>allow</code>; an edit needs a new trust. <code>--trust</code> on <code>new</code> or <code>apply</code> does it in the same run, <code>--no-profile</code> ignores the repository file. Your own <code>~/.skiff/profile.toml</code> needs no trust.</p>
+        <h3>Limiting what a repository may grant</h3>
+        <p>Trust says you have read a file. To cap what any repository file may ask for, however often you trust it, list the allowed grants in your machine default:</p>
+<pre class="code"># ~/.skiff/profile.toml
+grants = ["claude"]
+allow_grants = ["claude", "github"]</pre>
+        <p>A <code>.skiff</code> or <code>--profile</code> file that asks for anything else, such as <code>ssh-agent</code>, is refused before the trust check, so <code>--trust</code> does not lift it. <code>allow_grants = []</code> lets no repository file grant anything; without the key there is no limit. Your own <code>--grant</code>, <code>skiff grant</code> and the default's own <code>grants</code> are not limited, and a repository file cannot set <code>allow_grants</code> itself.</p>
         <h3>Keeping a VM up to date</h3>
         <div class="cmd" data-copy="skiff apply agent1">
           <span class="prompt" aria-hidden="true">$</span>

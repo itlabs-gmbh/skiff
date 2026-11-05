@@ -14,6 +14,11 @@ const Skeleton = `# skiff profile (TOML). A .skiff file in a repository says wha
 # Capabilities to grant, as with 'skiff grant' (see 'skiff cap ls').
 # grants = ["claude", "github"]
 
+# Only in ~/.skiff/profile.toml: the grants a repository's .skiff (or a
+# --profile file) may ask for, however often it is trusted. No key: no
+# limit; [] allows none. --grant and 'skiff grant' are not limited.
+# allow_grants = ["claude", "github"]
+
 # Skills (folders with a SKILL.md) from public git repositories, cloned at
 # setup and linked for Claude Code and Codex: owner/repo[/path][@ref] on
 # GitHub, or a full https URL.

@@ -42,6 +42,11 @@ func (p Profile) validate(cross bool) error {
 			problems = append(problems, err.Error())
 		}
 	}
+	for _, g := range p.AllowGrants {
+		if _, err := grant.Parse(g); err != nil {
+			problems = append(problems, "allow_grants: "+err.Error())
+		}
+	}
 	if _, err := ParseSkills(p.Skills); err != nil {
 		problems = append(problems, err.Error())
 	}
