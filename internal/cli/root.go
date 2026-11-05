@@ -63,6 +63,9 @@ func newRoot(build appBuilder) *cobra.Command {
 		Long: `skiff creates throwaway Linux VMs on Apple Silicon, one per task or agent. Every
 VM gets its own kernel, root disk, IP address and root SSH access; credentials
 stay on the Mac and are brokered into the VM per grant.`,
+		// Cobra answers --version/-v before PersistentPreRunE, so printing
+		// the version never builds the App or touches the config.
+		Version:       Version(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) (err error) {
