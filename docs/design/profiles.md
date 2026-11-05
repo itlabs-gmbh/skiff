@@ -132,4 +132,6 @@ Sections and where they land:
 - A machine default could restrict which grants a repository's `.skiff`
   may ask for (`allow_grants`). Not needed while skiff is personal.
 - bb's skiff provider can pass its own profile with `--profile` instead of
-  its bootstrap script.
+  its bootstrap script. `--profile` is repeatable and trust is per file, so
+  the provider trusts only its own file and passes the repository's `.skiff`
+  as a second `--profile`, which stays subject to the user's trust.

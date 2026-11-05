@@ -41,13 +41,13 @@ func writeFile(t *testing.T, path, text string) string {
 
 func TestResolveProfileMergesDefaultAndRepo(t *testing.T) {
 	app, _ := newGrantApp(t, &sshScripts{})
-	p, err := app.ResolveProfile(filepath.Join(t.TempDir(), ".skiff"), false)
+	p, err := app.ResolveProfile([]string{filepath.Join(t.TempDir(), ".skiff")}, false)
 	if err != nil || !p.IsZero() {
 		t.Fatalf("no files: want zero profile, got %+v, %v", p, err)
 	}
 	writeFile(t, app.paths.ProfilePath(), "grants = [\"github\"]\n[machine]\nmem = 2048\n[guest]\ntools = [\"claude\"]\n")
 	repo := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), repoProfile)
-	p, err = app.ResolveProfile(repo, true)
+	p, err = app.ResolveProfile([]string{repo}, true)
 	if err != nil {
 		t.Fatalf("ResolveProfile: %v", err)
 	}
@@ -57,14 +57,14 @@ func TestResolveProfileMergesDefaultAndRepo(t *testing.T) {
 	if p.Machine.VCPUs != 4 || p.Machine.MemMiB != 2048 || len(p.Guest.Tools) != 1 || len(p.Sources) != 2 {
 		t.Errorf("merge: %+v", p)
 	}
-	if _, err := app.ResolveProfile(filepath.Join(t.TempDir(), "missing"), true); err == nil {
+	if _, err := app.ResolveProfile([]string{filepath.Join(t.TempDir(), "missing")}, true); err == nil {
 		t.Error("an explicitly named file must exist")
 	}
-	if p, err := app.ResolveProfile(filepath.Join(t.TempDir(), "missing"), false); err != nil || len(p.Sources) != 1 {
+	if p, err := app.ResolveProfile([]string{filepath.Join(t.TempDir(), "missing")}, false); err != nil || len(p.Sources) != 1 {
 		t.Errorf("a missing .skiff is skipped: %+v, %v", p.Sources, err)
 	}
 	writeFile(t, repo, "[machine]\nvcpus = 99\n")
-	if _, err := app.ResolveProfile(repo, true); err == nil {
+	if _, err := app.ResolveProfile([]string{repo}, true); err == nil {
 		t.Error("a broken repository file is an error, not ignored")
 	}
 }
@@ -74,14 +74,14 @@ func TestResolveTrustedProfileRequiresTrust(t *testing.T) {
 	writeFile(t, app.paths.ProfilePath(), "grants = [\"github\"]\n")
 	repo := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), repoProfile)
 	// The machine default alone needs no trust.
-	if _, err := app.ResolveTrustedProfile(filepath.Join(t.TempDir(), "none"), false, false); err != nil {
+	if _, err := app.ResolveTrustedProfile([]string{filepath.Join(t.TempDir(), "none")}, false, false); err != nil {
 		t.Errorf("default only: %v", err)
 	}
-	_, err := app.ResolveTrustedProfile(repo, false, false)
+	_, err := app.ResolveTrustedProfile([]string{repo}, false, false)
 	if !errors.Is(err, ErrUntrusted) {
 		t.Fatalf("want ErrUntrusted, got %v", err)
 	}
-	for _, want := range []string{"grants github, claude", "runs a setup as root", "configures the agents", "skiff profile trust"} {
+	for _, want := range []string{"(it grants claude,", "runs a setup as root", "configures the agents", "skiff profile trust"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should say what the file does (%q): %v", want, err)
 		}
@@ -92,7 +92,7 @@ func TestResolveTrustedProfileRequiresTrust(t *testing.T) {
 	if !strings.Contains(out.String(), "trusted "+repo) {
 		t.Errorf("output: %s", out.String())
 	}
-	if p, err := app.ResolveTrustedProfile(repo, false, false); err != nil || len(p.Sources) != 2 {
+	if p, err := app.ResolveTrustedProfile([]string{repo}, false, false); err != nil || len(p.Sources) != 2 {
 		t.Errorf("after trust: %v, %v", p.Sources, err)
 	}
 	if err := app.ProfileTrust(repo); err != nil || !strings.Contains(out.String(), "already trusted") {
@@ -100,17 +100,93 @@ func TestResolveTrustedProfileRequiresTrust(t *testing.T) {
 	}
 	// An edit withdraws the trust; --trust records the new content.
 	writeFile(t, repo, repoProfile+"\n[guest.env]\nX = \"1\"\n")
-	if _, err := app.ResolveTrustedProfile(repo, false, false); !errors.Is(err, ErrUntrusted) {
+	if _, err := app.ResolveTrustedProfile([]string{repo}, false, false); !errors.Is(err, ErrUntrusted) {
 		t.Errorf("edited file must be untrusted again, got %v", err)
 	}
-	if _, err := app.ResolveTrustedProfile(repo, false, true); err != nil {
+	if _, err := app.ResolveTrustedProfile([]string{repo}, false, true); err != nil {
 		t.Errorf("--trust: %v", err)
 	}
-	if _, err := app.ResolveTrustedProfile(repo, false, false); err != nil {
+	if _, err := app.ResolveTrustedProfile([]string{repo}, false, false); err != nil {
 		t.Errorf("--trust must record the file: %v", err)
 	}
 	if err := app.ProfileTrust(filepath.Join(t.TempDir(), "missing")); err == nil {
 		t.Error("trusting a missing file must fail")
+	}
+}
+
+func TestResolveProfileMergesSeveralFilesInOrder(t *testing.T) {
+	app, _ := newGrantApp(t, &sshScripts{})
+	writeFile(t, app.paths.ProfilePath(), "grants = [\"github\"]\n")
+	dir := t.TempDir()
+	first := writeFile(t, filepath.Join(dir, "plugin.toml"), "grants = [\"claude\"]\n[machine]\nvcpus = 2\nmem = 2048\n[guest]\nsetup = \"echo first\"\n")
+	second := writeFile(t, filepath.Join(dir, ".skiff"), "grants = [\"codex\"]\n[machine]\nvcpus = 4\n[guest]\nsetup = \"echo second\"\n")
+	p, err := app.ResolveProfile([]string{first, second}, true)
+	if err != nil {
+		t.Fatalf("ResolveProfile: %v", err)
+	}
+	if got := strings.Join(p.Grants, ","); got != "github,claude,codex" {
+		t.Errorf("grants: %s", got)
+	}
+	if p.Machine.VCPUs != 4 || p.Machine.MemMiB != 2048 {
+		t.Errorf("a later file wins, an earlier one fills in: %+v", p.Machine)
+	}
+	if p.Guest.Setup != "echo first\necho second" {
+		t.Errorf("setup scripts run in flag order: %q", p.Guest.Setup)
+	}
+	if got := strings.Join(p.Sources, " + "); got != app.paths.ProfilePath()+" + "+first+" + "+second {
+		t.Errorf("sources: %s", got)
+	}
+	if _, err := app.ResolveProfile([]string{first, filepath.Join(dir, "missing")}, true); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("every named file must exist, got %v", err)
+	}
+	if _, err := app.ResolveProfile([]string{first, second, filepath.Join(dir, ".", "plugin.toml")}, true); err == nil || !strings.Contains(err.Error(), "more than once") {
+		t.Errorf("a file named twice would run its setup twice, got %v", err)
+	}
+}
+
+func TestResolveTrustedProfileChecksEachFile(t *testing.T) {
+	app, out := newTestAppOut(t)
+	dir := t.TempDir()
+	plugin := writeFile(t, filepath.Join(dir, "plugin.toml"), "grants = [\"github\"]\n")
+	repo := writeFile(t, filepath.Join(dir, ".skiff"), repoProfile)
+	other := writeFile(t, filepath.Join(dir, "other.toml"), "[machine]\nports = [\"3000\"]\n")
+	files := []string{plugin, repo, other}
+	if err := app.ProfileTrust(plugin); err != nil {
+		t.Fatalf("ProfileTrust: %v", err)
+	}
+	_, err := app.ResolveTrustedProfile(files, true, false)
+	if !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("want ErrUntrusted, got %v", err)
+	}
+	for _, want := range []string{repo + " (it grants claude", other + " (it forwards ports 3000)"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should name every untrusted file (%q): %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), plugin) {
+		t.Errorf("a trusted file must not be named: %v", err)
+	}
+	for _, f := range []string{repo, other} {
+		if err := app.ProfileTrust(f); err != nil {
+			t.Fatalf("ProfileTrust: %v", err)
+		}
+	}
+	if p, err := app.ResolveTrustedProfile(files, true, false); err != nil || len(p.Sources) != 3 {
+		t.Fatalf("all trusted: %v, %v", p.Sources, err)
+	}
+	// Swapping one file withdraws only its trust.
+	writeFile(t, plugin, "grants = [\"github\", \"claude\"]\n")
+	_, err = app.ResolveTrustedProfile(files, true, false)
+	if !errors.Is(err, ErrUntrusted) || !strings.Contains(err.Error(), plugin) || strings.Contains(err.Error(), repo) {
+		t.Errorf("only the changed file is untrusted: %v", err)
+	}
+	// --trust records what is missing, and only that.
+	out.Reset()
+	if _, err := app.ResolveTrustedProfile(files, true, true); err != nil {
+		t.Fatalf("--trust: %v", err)
+	}
+	if got := out.String(); got != "trusted "+plugin+" (until it changes)\n" {
+		t.Errorf("--trust output: %q", got)
 	}
 }
 
@@ -124,7 +200,7 @@ func TestApplyRefusesZeroProfile(t *testing.T) {
 func TestProfileShowRenderLeavesNoState(t *testing.T) {
 	app, _ := newTestAppOut(t)
 	repo := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), repoProfile)
-	if err := app.ProfileShow(repo, true, "", true); err != nil {
+	if err := app.ProfileShow([]string{repo}, true, "", true); err != nil {
 		t.Fatalf("ProfileShow: %v", err)
 	}
 	if names, _ := app.grantStore().Names(); len(names) != 0 {
@@ -252,7 +328,7 @@ func TestProfileShowInitLint(t *testing.T) {
 	app, out := newTestAppOut(t)
 	dir := t.TempDir()
 	repo := filepath.Join(dir, ".skiff")
-	if err := app.ProfileShow(repo, false, "", false); err != nil || !strings.Contains(out.String(), "no profile") {
+	if err := app.ProfileShow([]string{repo}, false, "", false); err != nil || !strings.Contains(out.String(), "no profile") {
 		t.Errorf("show without files: %v\n%s", err, out.String())
 	}
 	if err := app.ProfileInit(repo, false); err != nil {
@@ -273,7 +349,7 @@ func TestProfileShowInitLint(t *testing.T) {
 	}
 	writeFile(t, repo, repoProfile)
 	out.Reset()
-	if err := app.ProfileShow(repo, true, "", true); err != nil {
+	if err := app.ProfileShow([]string{repo}, true, "", true); err != nil {
 		t.Fatalf("ProfileShow --render: %v", err)
 	}
 	for _, want := range []string{"# sources:", "vcpus = 4", "grants claude", "file " + profile.ClaudeSettingsFile, "json /root/.claude.json mcpServers.context7", "file /root/.codex/config.toml", "setup script:", "apt-get install"} {
@@ -288,7 +364,7 @@ func TestProfileShowInitLint(t *testing.T) {
 	if err := app.ProfileLint(repo, ""); err == nil {
 		t.Error("lint must report the broken file")
 	}
-	if err := app.ProfileShow("", false, "nobody", false); err == nil || !strings.Contains(err.Error(), "no profile has been applied") {
+	if err := app.ProfileShow(nil, false, "nobody", false); err == nil || !strings.Contains(err.Error(), "no profile has been applied") {
 		t.Errorf("show --vm without a stored profile: %v", err)
 	}
 }
@@ -331,7 +407,7 @@ func TestApplyChecksConflictsBeforeSetup(t *testing.T) {
 func TestResolveProfileValidatesTheDefaultAlone(t *testing.T) {
 	app, _ := newGrantApp(t, &sshScripts{})
 	writeFile(t, app.paths.ProfilePath(), "[claude]\nplugins = [\"x@missing\"]\n")
-	if _, err := app.ResolveProfile(filepath.Join(t.TempDir(), "none"), false); err == nil || !strings.Contains(err.Error(), "not declared") {
+	if _, err := app.ResolveProfile([]string{filepath.Join(t.TempDir(), "none")}, false); err == nil || !strings.Contains(err.Error(), "not declared") {
 		t.Errorf("the default alone must be validated as a whole, got %v", err)
 	}
 }

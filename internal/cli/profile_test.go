@@ -69,12 +69,38 @@ func TestNewTakesSizeAndGrantsFromProfile(t *testing.T) {
 	}
 }
 
+func TestNewMergesRepeatedProfiles(t *testing.T) {
+	plugin := filepath.Join(t.TempDir(), "plugin.toml")
+	if err := os.WriteFile(plugin, []byte("[machine]\nvcpus = 2\nports = [\"5000\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := writeProfile(t)
+	_, _, _, err := runNew(t, "box", "--profile", plugin, "--profile", repo)
+	if err == nil || !strings.Contains(err.Error(), plugin) || !strings.Contains(err.Error(), repo) {
+		t.Fatalf("every untrusted file must be named, got %v", err)
+	}
+	out, fb, _, err := runNew(t, "box", "--profile", plugin, "--profile", repo, "--trust")
+	if err != nil {
+		t.Fatalf("new: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "applying profile "+plugin+" + "+repo) {
+		t.Errorf("output:\n%s", out)
+	}
+	// vcpus from the later file wins, ports are joined in flag order.
+	if !fb.Called("create box 4 4096") || !fb.Called("forward box 5000:5000 3000:3000") {
+		t.Errorf("backend calls:\n%s", fb.Dump())
+	}
+}
+
 func TestNewWithMissingExplicitProfileFails(t *testing.T) {
 	if _, _, err := run(t, "new", "box", "--profile", filepath.Join(t.TempDir(), "none")); err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Errorf("want missing-file error, got %v", err)
 	}
 	if out, _, err := run(t, "new", "box", "--no-profile"); err != nil {
 		t.Errorf("--no-profile: %v\n%s", err, out)
+	}
+	if _, _, err := run(t, "new", "box", "--no-profile", "--profile", writeProfile(t)); err == nil {
+		t.Error("--profile and --no-profile are exclusive")
 	}
 }
 

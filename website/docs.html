@@ -179,7 +179,7 @@ runs a setup as root in the VM, configures the agents); read it with
               <tr><td><code>new [NAME] [--vcpus N --mem MiB -p PORT --grant CAP --owner O --slot S]</code></td><td>Create and boot a VM.</td></tr>
               <tr><td><code>new … -p [HOST:]GUEST --grant CAP</code></td><td>Forward ports and grant capabilities right away.</td></tr>
               <tr><td><code>new … --owner NAME --slot N</code></td><td>Label a VM a tool manages, for <code>gc</code>.</td></tr>
-              <tr><td><code>new … [--profile FILE | --no-profile]</code></td><td>Use another profile file than <code>./.skiff</code>, or ignore it. See <a href="#profiles">Profiles</a>.</td></tr>
+              <tr><td><code>new … [--profile FILE… | --no-profile]</code></td><td>Use other profile files than <code>./.skiff</code> (repeatable, merged in order, each trusted on its own), or ignore it. See <a href="#profiles">Profiles</a>.</td></tr>
               <tr><td><code>apply NAME [--setup]</code></td><td>Apply the profile to a running VM: grant, configure, and with <code>--setup</code> install again.</td></tr>
               <tr><td><code>profile show [--vm NAME] [--render] / init [--global] / lint / trust</code></td><td>Show the merged profile or a VM's, write a skeleton, validate, trust a repository's file.</td></tr>
               <tr><td><code>ls [--json]</code></td><td>Every VM with state, IP, size, ports, grants, owner, age and SSH destination.</td></tr>

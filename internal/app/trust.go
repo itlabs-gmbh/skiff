@@ -23,9 +23,47 @@ const trustedFile = "trusted"
 // its current content.
 var ErrUntrusted = errors.New("profile is not trusted")
 
-// untrustedError spells out what the file would do, so the decision is
-// about consequences rather than a file name.
-func untrustedError(path string, p profile.Profile) error {
+// untrustedProfile is a repository file that is not trusted as it was read.
+type untrustedProfile struct {
+	readProfile
+	key string
+}
+
+// untrustedProfiles checks each file on its own, in the order given.
+func (a *App) untrustedProfiles(read []readProfile) ([]untrustedProfile, error) {
+	var out []untrustedProfile
+	for _, r := range read {
+		key, err := trustKey(r.path, r.data)
+		if err != nil {
+			return nil, err
+		}
+		ok, err := a.isTrusted(key)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			out = append(out, untrustedProfile{readProfile: r, key: key})
+		}
+	}
+	return out, nil
+}
+
+// untrustedError names every untrusted file and spells out what each would
+// do, so the decision is about consequences rather than file names.
+func untrustedError(files []untrustedProfile) error {
+	named := make([]string, len(files))
+	for i, f := range files {
+		named[i] = f.path + describeProfile(f.prof)
+	}
+	it := "it"
+	if len(files) > 1 {
+		it = "them"
+	}
+	return fmt.Errorf("%w: %s; read %s with 'skiff profile show --render', then 'skiff profile trust' or --trust, or pass --no-profile", ErrUntrusted, strings.Join(named, "; "), it)
+}
+
+// describeProfile lists what a file would do, as " (it ...)", or "".
+func describeProfile(p profile.Profile) string {
 	var does []string
 	if len(p.Grants) > 0 {
 		does = append(does, "grants "+strings.Join(p.Grants, ", "))
@@ -39,11 +77,10 @@ func untrustedError(path string, p profile.Profile) error {
 	if p.Claude != nil || p.Codex != nil {
 		does = append(does, "configures the agents")
 	}
-	what := ""
-	if len(does) > 0 {
-		what = " (it " + strings.Join(does, ", ") + ")"
+	if len(does) == 0 {
+		return ""
 	}
-	return fmt.Errorf("%w: %s%s; read it with 'skiff profile show --render', then 'skiff profile trust' or --trust, or pass --no-profile", ErrUntrusted, path, what)
+	return " (it " + strings.Join(does, ", ") + ")"
 }
 
 // trustKey identifies a file by its absolute path and the content it was
