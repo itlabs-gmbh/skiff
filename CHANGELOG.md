@@ -7,6 +7,18 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.0] - 2026-11-05
+
+Several profile files for one VM. `--profile` can be repeated, and each file
+is trusted on its own, so a tool can trust the profile it writes and pass the
+repository's `.skiff` next to it, which still needs your `skiff profile
+trust`. `skiff new --json` prints only JSON on stdout again, and when the
+setup fails during `skiff new` the error names the `skiff apply --setup
+--grant ...` that finishes the VM. With a single `--profile` nothing
+changes; `--profile` together with `--no-profile` is now refused.
+
 ### Added
 
 - `--profile` on `new`, `apply` and `profile show` can be repeated. The files
@@ -335,7 +347,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/sovyn-eu/skiff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sovyn-eu/skiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sovyn-eu/skiff/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/sovyn-eu/skiff/compare/v0.2.0...v0.2.1
