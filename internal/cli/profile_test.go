@@ -202,3 +202,28 @@ func TestNewNamesTheApplyRetryWithTheSameProfileWhenSetupFails(t *testing.T) {
 		})
 	}
 }
+
+func TestAllowGrantsLimitsTheRepositoryFileButNotGrantFlags(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "profile.toml"), []byte("allow_grants = [\"claude\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(t.TempDir(), ".skiff")
+	if err := os.WriteFile(repo, []byte("grants = [\"github\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runIn(t, home, "", "apply", "vm1", "--profile", repo, "--trust")
+	if err == nil || !strings.Contains(err.Error(), "asks for grants github") {
+		t.Fatalf("a repository grant outside allow_grants must be refused, got %v\n%s", err, out)
+	}
+	if err := os.WriteFile(repo, []byte("grants = [\"claude\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err = runIn(t, home, "", "apply", "vm1", "--profile", repo, "--trust", "--grant", "github")
+	if err != nil {
+		t.Fatalf("--grant is the user's own hand and not limited: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "vm1 may now use: claude, github") {
+		t.Errorf("output:\n%s", out)
+	}
+}

@@ -116,6 +116,31 @@ Sections and where they land:
   without a `.skiff` cannot wipe a VM's configuration; `apply --clear` is
   the explicit way to remove it.
 
+## Grant limit (`allow_grants`)
+
+Added 2026-11-05. Trust is per file and per content: it records that the
+user read a file, not what any file may ask for. A tool that passes
+`--trust` on fresh checkouts, or a user who trusts routinely, has no upper
+bound. `allow_grants` in the machine default is that bound.
+
+- **Only in the machine default.** It is policy, not content: `Merge`
+  does not carry it, the stored profile never contains it, and a
+  repository file that sets it is refused (also by `profile lint FILE`), so
+  no file can widen its own limit. The default is identified by file
+  identity, as the duplicate check does.
+- **Checked per repository file, before trust.** `resolveProfile` checks
+  each `.skiff` or `--profile` file against the limit as it is read. The
+  refusal comes before the trust check, so `--trust` cannot lift it and a
+  refused file is not recorded as trusted. The refusal names the file, the
+  grants outside the limit and the way out (`--grant`, `skiff grant`, or
+  widening the limit).
+- **The user's hand is free.** The default's own `grants`, `--grant` and
+  `skiff grant` are not limited: they come from the user, not from a
+  repository.
+- **Absent, empty, list.** No key is no limit (the behaviour before), `[]`
+  allows none, a list allows those names. `ssh-agent` is a grant like any
+  other here.
+
 ## Non-goals
 
 - Image variants or snapshots. Setup runs in the fresh VM every time; a
@@ -129,8 +154,6 @@ Sections and where they land:
 
 - Codex has no declarative plugin install yet; when it gets one, `[codex]`
   grows a `plugins` list rendered the same way.
-- A machine default could restrict which grants a repository's `.skiff`
-  may ask for (`allow_grants`). Not needed while skiff is personal.
 - bb's skiff provider can pass its own profile with `--profile` instead of
   its bootstrap script. `--profile` is repeatable and trust is per file, so
   the provider trusts only its own file and passes the repository's `.skiff`

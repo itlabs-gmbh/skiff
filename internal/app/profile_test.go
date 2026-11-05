@@ -532,3 +532,104 @@ func TestNewVMReportsAProfileErrorWhenSetupFails(t *testing.T) {
 		t.Errorf("want a ProfileError for box, got %#v", err)
 	}
 }
+
+func TestAllowGrantsLimitsRepositoryFiles(t *testing.T) {
+	cases := []struct {
+		name    string
+		def     string
+		repo    string
+		wantErr string
+	}{
+		{"no limit", "grants = [\"claude\"]\n", "grants = [\"github\", \"ssh-agent\"]\n", ""},
+		{"allowed", "allow_grants = [\"claude\", \"github\"]\n", "grants = [\"github\"]\n", ""},
+		{"outside the limit", "allow_grants = [\"claude\"]\n", "grants = [\"claude\", \"github\", \"ssh-agent\"]\n", "github, ssh-agent"},
+		{"empty list allows none", "allow_grants = []\n", "grants = [\"claude\"]\n", "claude"},
+		{"empty list, file without grants", "allow_grants = []\n", "[machine]\nvcpus = 2\n", ""},
+		{"the default's own grants are free", "grants = [\"github\"]\nallow_grants = [\"claude\"]\n", "grants = [\"claude\"]\n", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			app, _ := newTestAppOut(t)
+			writeFile(t, app.paths.ProfilePath(), c.def)
+			repo := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), c.repo)
+			p, err := app.ResolveProfile([]string{repo}, true)
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ResolveProfile: %v", err)
+				}
+				if p.AllowGrants != nil {
+					t.Errorf("the resolved profile must not carry the policy: %v", p.AllowGrants)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("want a refusal naming %q", c.wantErr)
+			}
+			for _, want := range []string{repo, c.wantErr, "allow_grants", app.paths.ProfilePath(), "--grant"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error should mention %q: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+func TestAllowGrantsCannotBeTrustedAway(t *testing.T) {
+	app, _ := newTestAppOut(t)
+	writeFile(t, app.paths.ProfilePath(), "allow_grants = [\"claude\"]\n")
+	repo := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), "grants = [\"github\"]\n")
+	if _, err := app.ResolveTrustedProfile([]string{repo}, true, true); err == nil || !strings.Contains(err.Error(), "allow_grants") {
+		t.Fatalf("--trust must not lift the limit, got %v", err)
+	}
+	if _, err := os.Stat(app.trustedPath()); err == nil {
+		t.Error("a refused file must not be recorded as trusted")
+	}
+}
+
+func TestAllowGrantsChecksEachRepositoryFile(t *testing.T) {
+	app, _ := newTestAppOut(t)
+	writeFile(t, app.paths.ProfilePath(), "allow_grants = [\"claude\"]\n")
+	first := writeFile(t, filepath.Join(t.TempDir(), "tool.toml"), "grants = [\"claude\"]\n")
+	second := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), "grants = [\"github\"]\n")
+	_, err := app.ResolveProfile([]string{first, second}, true)
+	if err == nil || !strings.Contains(err.Error(), second) || strings.Contains(err.Error(), first+" asks") {
+		t.Errorf("the refusal must name the second file only, got %v", err)
+	}
+}
+
+func TestAllowGrantsOnlyInTheMachineDefault(t *testing.T) {
+	app, _ := newTestAppOut(t)
+	repo := writeFile(t, filepath.Join(t.TempDir(), ".skiff"), "allow_grants = [\"github\"]\ngrants = [\"github\"]\n")
+	if _, err := app.ResolveProfile([]string{repo}, true); err == nil || !strings.Contains(err.Error(), "only in "+app.paths.ProfilePath()) {
+		t.Errorf("a repository file must not set its own limit, got %v", err)
+	}
+	if err := app.ProfileLint(repo, ""); err == nil || !strings.Contains(err.Error(), "only in") {
+		t.Errorf("lint of the file alone must report it too, got %v", err)
+	}
+	writeFile(t, app.paths.ProfilePath(), "allow_grants = [\"claude\"]\n")
+	if err := app.ProfileLint(app.paths.ProfilePath(), ""); err != nil {
+		t.Errorf("lint of the machine default: %v", err)
+	}
+}
+
+func TestProfileShowNamesTheLimit(t *testing.T) {
+	app, out := newTestAppOut(t)
+	writeFile(t, app.paths.ProfilePath(), "grants = [\"claude\"]\nallow_grants = [\"claude\", \"github\"]\n")
+	if err := app.ProfileShow(nil, false, "", false); err != nil {
+		t.Fatalf("ProfileShow: %v", err)
+	}
+	if !strings.Contains(out.String(), "# repository files may grant: claude, github") {
+		t.Errorf("show should name the limit:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "allow_grants =") {
+		t.Errorf("the limit is not part of the applied profile:\n%s", out.String())
+	}
+	out.Reset()
+	writeFile(t, app.paths.ProfilePath(), "allow_grants = []\n")
+	if err := app.ProfileShow(nil, false, "", false); err != nil {
+		t.Fatalf("ProfileShow: %v", err)
+	}
+	if !strings.Contains(out.String(), "# repository files may grant: nothing") {
+		t.Errorf("show should name an empty limit:\n%s", out.String())
+	}
+}

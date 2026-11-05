@@ -7,7 +7,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **`allow_grants` in the machine default.** `~/.skiff/profile.toml` can
+  list the grants a repository file may ask for, for example
+  `allow_grants = ["claude", "github"]`. A `.skiff` or `--profile` file that
+  asks for anything else is refused before the trust check, so `--trust`
+  does not lift the limit; `allow_grants = []` allows none, and without the
+  key nothing changes. The default's own grants, `--grant` and `skiff grant`
+  are not limited. A repository file that sets `allow_grants` itself is
+  refused, and `skiff profile show` prints the limit.
 
 ## [0.5.0] - 2026-11-05
 

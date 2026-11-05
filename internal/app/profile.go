@@ -21,8 +21,8 @@ import (
 // named explicitly must exist; the default name (.skiff) is simply skipped
 // when it is missing. All files are optional, so the result may be zero.
 func (a *App) ResolveProfile(repoFiles []string, explicit bool) (profile.Profile, error) {
-	p, _, err := a.resolveProfile(repoFiles, explicit)
-	return p, err
+	r, err := a.resolveProfile(repoFiles, explicit)
+	return r.prof, err
 }
 
 // readProfile is a repository file with the bytes it was parsed from, so a
@@ -33,50 +33,97 @@ type readProfile struct {
 	prof profile.Profile
 }
 
-// resolveProfile also returns the repository files that were read.
-func (a *App) resolveProfile(repoFiles []string, explicit bool) (profile.Profile, []readProfile, error) {
-	var merged profile.Profile
+// resolved is a merged profile with what went into it: the repository files
+// that were read and the machine default's limit on their grants (nil: none).
+type resolved struct {
+	prof  profile.Profile
+	read  []readProfile
+	allow []string
+}
+
+// resolveProfile also returns the repository files that were read and the
+// grant limit. A repository file that asks for a grant outside the limit is
+// refused here, before any trust check, so --trust cannot lift it.
+func (a *App) resolveProfile(repoFiles []string, explicit bool) (resolved, error) {
+	var r resolved
 	var seen fileSet
 	data, found, err := readOptional(a.paths.ProfilePath())
 	if err != nil {
-		return profile.Profile{}, nil, err
+		return resolved{}, err
 	}
 	if found {
-		if merged, err = profile.Parse(string(data), a.paths.ProfilePath()); err != nil {
-			return profile.Profile{}, nil, err
+		def, err := profile.Parse(string(data), a.paths.ProfilePath())
+		if err != nil {
+			return resolved{}, err
 		}
+		r.prof, r.allow = def.WithoutPolicy(), def.AllowGrants
 		if seen, err = seen.add(a.paths.ProfilePath()); err != nil {
-			return profile.Profile{}, nil, err
+			return resolved{}, err
 		}
 	}
-	var read []readProfile
 	for _, path := range repoFiles {
 		data, found, err := readOptional(path)
 		if err != nil {
-			return profile.Profile{}, nil, err
+			return resolved{}, err
 		}
 		if !found {
 			if explicit {
-				return profile.Profile{}, nil, fmt.Errorf("profile %s does not exist", path)
+				return resolved{}, fmt.Errorf("profile %s does not exist", path)
 			}
 			continue
 		}
 		if seen, err = seen.add(path); err != nil {
-			return profile.Profile{}, nil, err
+			return resolved{}, err
 		}
 		repo, err := profile.Parse(string(data), path)
 		if err != nil {
-			return profile.Profile{}, nil, err
+			return resolved{}, err
 		}
-		merged = profile.Merge(merged, repo)
-		read = append(read, readProfile{path: path, data: data, prof: repo})
+		if err := a.checkRepoFile(path, repo, r.allow); err != nil {
+			return resolved{}, err
+		}
+		r.prof = profile.Merge(r.prof, repo)
+		r.read = append(r.read, readProfile{path: path, data: data, prof: repo})
 	}
 	// Each file was checked on its own; references between them (a plugin's
 	// marketplace) and the default alone are checked here, on every path.
-	if err := merged.Validate(); err != nil {
-		return profile.Profile{}, nil, fmt.Errorf("%s: %w", strings.Join(merged.Sources, " + "), err)
+	if err := r.prof.Validate(); err != nil {
+		return resolved{}, fmt.Errorf("%s: %w", strings.Join(r.prof.Sources, " + "), err)
 	}
-	return merged, read, nil
+	return r, nil
+}
+
+// checkRepoFile enforces what only the machine default may decide: a
+// repository file sets no grant limit of its own and asks for no grant
+// outside the default's.
+func (a *App) checkRepoFile(path string, p profile.Profile, allow []string) error {
+	if p.AllowGrants != nil {
+		return a.policyOutsideDefault(path)
+	}
+	outside := p.GrantsOutside(allow)
+	if len(outside) == 0 {
+		return nil
+	}
+	limit := "allow_grants is empty"
+	if len(allow) > 0 {
+		limit = "allow_grants = " + strings.Join(allow, ", ")
+	}
+	return fmt.Errorf("profile %s asks for grants %s, which %s does not allow (%s); grant them yourself with --grant or 'skiff grant', or add them to allow_grants",
+		path, strings.Join(outside, ", "), a.paths.ProfilePath(), limit)
+}
+
+func (a *App) policyOutsideDefault(path string) error {
+	return fmt.Errorf("profile %s sets allow_grants, which is honoured only in %s, the machine default: a repository file must not set its own limit", path, a.paths.ProfilePath())
+}
+
+// isMachineDefault reports whether path is the machine default, by identity.
+func (a *App) isMachineDefault(path string) bool {
+	def, err := os.Stat(a.paths.ProfilePath())
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && os.SameFile(def, info)
 }
 
 // fileSet holds the profile files read so far, by identity rather than by
@@ -122,11 +169,12 @@ func readOptional(path string) ([]byte, bool, error) {
 // a file swapped after it was trusted is refused. The machine default needs
 // no trust.
 func (a *App) ResolveTrustedProfile(repoFiles []string, explicit, trust bool) (profile.Profile, error) {
-	p, read, err := a.resolveProfile(repoFiles, explicit)
+	r, err := a.resolveProfile(repoFiles, explicit)
 	if err != nil {
 		return profile.Profile{}, err
 	}
-	untrusted, err := a.untrustedProfiles(read)
+	p := r.prof
+	untrusted, err := a.untrustedProfiles(r.read)
 	if err != nil {
 		return profile.Profile{}, err
 	}
@@ -346,10 +394,12 @@ func (a *App) ProfileShow(repoFiles []string, explicit bool, vmName string, rend
 		}
 		p = *stored
 	} else {
-		var err error
-		if p, err = a.ResolveProfile(repoFiles, explicit); err != nil {
+		r, err := a.resolveProfile(repoFiles, explicit)
+		if err != nil {
 			return err
 		}
+		p = r.prof
+		a.printGrantLimit(r.allow)
 	}
 	if p.IsZero() {
 		a.printf("# no profile: none of %s exists\n", strings.Join(append([]string{a.paths.ProfilePath()}, repoFiles...), ", "))
@@ -364,6 +414,17 @@ func (a *App) ProfileShow(repoFiles []string, explicit bool, vmName string, rend
 		return nil
 	}
 	return a.printProfilePlan(p, vmName)
+}
+
+// printGrantLimit names the machine default's limit on repository grants.
+func (a *App) printGrantLimit(allow []string) {
+	switch {
+	case allow == nil:
+	case len(allow) == 0:
+		a.printf("# repository files may grant: nothing (allow_grants in %s)\n", a.paths.ProfilePath())
+	default:
+		a.printf("# repository files may grant: %s (allow_grants in %s)\n", strings.Join(allow, ", "), a.paths.ProfilePath())
+	}
 }
 
 func (a *App) printProfilePlan(p profile.Profile, vmName string) error {
@@ -421,8 +482,12 @@ func (a *App) ProfileInit(repoFile string, global bool) error {
 // file and their merge.
 func (a *App) ProfileLint(path string, repoFile string) error {
 	if path != "" {
-		if _, err := profile.ParseFile(path); err != nil {
+		p, err := profile.ParseFile(path)
+		if err != nil {
 			return err
+		}
+		if p.AllowGrants != nil && !a.isMachineDefault(path) {
+			return a.policyOutsideDefault(path)
 		}
 		a.printf("%s: ok\n", path)
 		return nil

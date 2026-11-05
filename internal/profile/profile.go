@@ -35,6 +35,12 @@ type Profile struct {
 	Claude  *Claude  `toml:"claude,omitempty"`
 	Codex   *Codex   `toml:"codex,omitempty"`
 
+	// AllowGrants limits the grants a repository file may ask for. It is
+	// policy, not content: only the machine default may set it, and it is
+	// never merged into the profile that is applied. Nil means no limit; an
+	// empty list allows none.
+	AllowGrants []string `toml:"allow_grants,omitempty"`
+
 	// Sources lists the files the profile was read from, in merge order.
 	Sources []string `toml:"-"`
 }
@@ -97,6 +103,11 @@ func Parse(text, source string) (Profile, error) {
 	if len(unknown) > 0 {
 		return Profile{}, fmt.Errorf("%s: unknown keys: %s", source, strings.Join(unknown, ", "))
 	}
+	// `allow_grants = []` decodes to nil like a missing key, but means the
+	// opposite: no repository file may grant anything.
+	if meta.IsDefined("allow_grants") && p.AllowGrants == nil {
+		p.AllowGrants = []string{}
+	}
 	p.Sources = []string{source}
 	if err := p.validate(false); err != nil {
 		return Profile{}, fmt.Errorf("%s: %w", source, err)
@@ -136,6 +147,33 @@ func (p Profile) IsZero() bool {
 
 func (g Guest) isZero() bool {
 	return len(g.Tools) == 0 && len(g.Packages) == 0 && strings.TrimSpace(g.Setup) == "" && len(g.Env) == 0
+}
+
+// WithoutPolicy returns a copy without the machine-wide limits, which are
+// not part of what a VM gets.
+func (p Profile) WithoutPolicy() Profile {
+	out := p
+	out.AllowGrants = nil
+	return out
+}
+
+// GrantsOutside lists the profile's grants that allowed does not contain, in
+// the profile's order. A nil allowed list is no limit.
+func (p Profile) GrantsOutside(allowed []string) []string {
+	if allowed == nil {
+		return nil
+	}
+	ok := make(map[string]bool, len(allowed))
+	for _, g := range allowed {
+		ok[g] = true
+	}
+	var outside []string
+	for _, g := range p.Grants {
+		if !ok[g] {
+			outside = append(outside, g)
+		}
+	}
+	return outside
 }
 
 // Encode renders the profile as TOML, the form Parse reads back.

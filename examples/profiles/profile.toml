@@ -7,6 +7,10 @@
 
 grants = ["claude", "github"]
 
+# A repository's .skiff may ask for these grants and no others, however often
+# it is trusted. Grant anything else yourself with --grant or 'skiff grant'.
+allow_grants = ["claude", "github"]
+
 [machine]
 mem = 2048
 

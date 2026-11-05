@@ -244,6 +244,35 @@ skiff profile trust ~/tool/base.toml          # the tool trusts only its own fil
 skiff new agent1 --profile ~/tool/base.toml --profile ./.skiff
 ```
 
+#### Limiting what a repository may grant: `allow_grants`
+
+Trust says "I have read this file". To also cap what any repository file
+may ask for, however often you trust it, list the allowed grants in the
+machine default:
+
+```toml
+# ~/.skiff/profile.toml
+grants = ["claude"]
+allow_grants = ["claude", "github"]
+```
+
+A `.skiff` or `--profile` file with `grants = ["github"]` still works; one
+asking for `azure-devops` or `ssh-agent` is refused, before the trust check,
+so `--trust` does not lift it:
+
+```
+skiff: profile .skiff asks for grants azure-devops, which ~/.skiff/profile.toml does not
+allow (allow_grants = claude, github); grant them yourself with --grant or 'skiff grant',
+or add them to allow_grants
+```
+
+Without the key there is no limit. `allow_grants = []` lets no repository
+file grant anything. The limit applies to every file given with `--profile`
+or found as `./.skiff`, each on its own; the machine default's own `grants`,
+`--grant` and `skiff grant` are your hand and are not limited. A repository
+file that sets `allow_grants` itself is refused, and `skiff profile show`
+prints the limit as a comment.
+
 #### Keeping a VM up to date: `skiff apply`
 
 `apply` brings a running VM to the state of the profile after you edited
