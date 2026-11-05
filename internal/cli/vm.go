@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -37,6 +38,11 @@ the profile's values.`,
 			}
 			spec = applyMachine(cmd, spec, prof.Machine)
 			info, err := get().NewVM(cmd.Context(), spec, &prof)
+			var pe *app.ProfileError
+			if errors.As(err, &pe) {
+				return fmt.Errorf("%w\n  %s is running without its profile and grants; finish it with: %s",
+					err, pe.Name, flags.applyRetry(pe.Name, spec.Grants))
+			}
 			if err != nil {
 				return err
 			}

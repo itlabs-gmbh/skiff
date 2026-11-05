@@ -5,6 +5,7 @@ import (
 
 	"github.com/sovyn-eu/skiff/internal/app"
 	"github.com/sovyn-eu/skiff/internal/profile"
+	"github.com/sovyn-eu/skiff/internal/shquote"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -163,6 +164,24 @@ default needs no trust.`,
 		},
 	}
 	cmd.AddCommand(show, initCmd, lint, trust)
+	return cmd
+}
+
+// applyRetry is the `skiff apply` that finishes a VM whose profile failed
+// during `skiff new`: it selects the same profile and passes the --grant
+// capabilities again, which Apply had not stored yet. --trust is left out
+// because `new` already recorded the trust.
+func (f profileFlags) applyRetry(name string, grants []string) string {
+	cmd := "skiff apply " + shquote.Quote(name) + " --setup"
+	switch {
+	case f.skip:
+		cmd += " --no-profile"
+	case f.path != "":
+		cmd += " --profile " + shquote.Quote(f.path)
+	}
+	for _, g := range grants {
+		cmd += " --grant " + shquote.Quote(g)
+	}
 	return cmd
 }
 

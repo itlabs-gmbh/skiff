@@ -421,7 +421,7 @@ func TestTrustRecordQuotesThePath(t *testing.T) {
 	}
 }
 
-func TestNewVMNamesTheApplyRetryWhenSetupFails(t *testing.T) {
+func TestNewVMReportsAProfileErrorWhenSetupFails(t *testing.T) {
 	fake := runner.NewFake(func(name string, args []string) ([]byte, error) {
 		if name == "ssh" {
 			return nil, errors.New("apt failed")
@@ -435,7 +435,8 @@ func TestNewVMNamesTheApplyRetryWhenSetupFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "setup of box failed") {
 		t.Fatalf("want setup failure, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "skiff apply box --setup --grant github") {
-		t.Errorf("error must say how to finish the VM, got %v", err)
+	var pe *ProfileError
+	if !errors.As(err, &pe) || pe.Name != "box" {
+		t.Errorf("want a ProfileError for box, got %#v", err)
 	}
 }
