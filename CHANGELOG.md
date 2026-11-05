@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] - 2026-11-05
+
+Your machine default can now cap what any repository may grant. Trust says
+you read a profile file; `allow_grants` says what no repository file gets,
+however often it is trusted or whichever tool passes `--trust`. Nothing
+changes until you add the key: without it every grant is allowed as before.
+
 ### Added
 
 - **`allow_grants` in the machine default.** `~/.skiff/profile.toml` can
@@ -366,7 +375,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/sovyn-eu/skiff/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/sovyn-eu/skiff/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/sovyn-eu/skiff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sovyn-eu/skiff/compare/v0.3.0...v0.4.0
