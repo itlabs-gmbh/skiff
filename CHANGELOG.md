@@ -7,6 +7,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.1] - 2026-11-05
+
+`skiff --version` tells which skiff is installed.
+
 ### Added
 
 - `skiff --version` (or `-v`) prints the version of the binary. Builds from
@@ -351,7 +357,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/sovyn-eu/skiff/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/sovyn-eu/skiff/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/sovyn-eu/skiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sovyn-eu/skiff/compare/v0.2.1...v0.3.0
