@@ -1,14 +1,17 @@
 BINARY := skiff
 GOFLAGS ?=
-
+# Stamped into `skiff --version`; empty outside a git checkout, where the
+# binary falls back to the Go build info.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+LDFLAGS := -X github.com/sovyn-eu/skiff/internal/cli.version=$(VERSION)
 
 .PHONY: build install test cover lint e2e e2e-intercept clean
 
 build:
-	go build $(GOFLAGS) -o bin/$(BINARY) ./cmd/$(BINARY)
+	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o bin/$(BINARY) ./cmd/$(BINARY)
 
 install:
-	go install $(GOFLAGS) ./cmd/$(BINARY)
+	go install $(GOFLAGS) -ldflags '$(LDFLAGS)' ./cmd/$(BINARY)
 
 test:
 	go test -race ./...

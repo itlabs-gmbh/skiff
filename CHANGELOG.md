@@ -7,7 +7,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `skiff --version` (or `-v`) prints the version of the binary. Builds from
+  `go install ...@vX.Y.Z` report that version; `make build` and `make
+  install` stamp `git describe --tags --always --dirty`.
 
 ## [0.5.0] - 2026-11-05
 
