@@ -496,3 +496,23 @@ func TestTrustRecordQuotesThePath(t *testing.T) {
 		t.Errorf("trust key must stay on one line: %q, %v", key, err)
 	}
 }
+
+func TestNewVMReportsAProfileErrorWhenSetupFails(t *testing.T) {
+	fake := runner.NewFake(func(name string, args []string) ([]byte, error) {
+		if name == "ssh" {
+			return nil, errors.New("apt failed")
+		}
+		return sshOnly(name, args)
+	})
+	app := New(fake, testPaths(t), &strings.Builder{}, WithBackend(backendtest.New()), WithTunnel(fakeTunnel))
+	p, _ := profile.Parse("grants = [\"claude\"]\n[guest]\npackages = [\"jq\"]\n", ".skiff")
+	spec := vm.Spec{Name: "box", VCPUs: 2, MemMiB: 1024, Grants: []string{"github"}}
+	_, err := app.NewVM(context.Background(), spec, &p)
+	if err == nil || !strings.Contains(err.Error(), "setup of box failed") {
+		t.Fatalf("want setup failure, got %v", err)
+	}
+	var pe *ProfileError
+	if !errors.As(err, &pe) || pe.Name != "box" {
+		t.Errorf("want a ProfileError for box, got %#v", err)
+	}
+}

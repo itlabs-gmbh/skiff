@@ -5,6 +5,7 @@ import (
 
 	"github.com/sovyn-eu/skiff/internal/app"
 	"github.com/sovyn-eu/skiff/internal/profile"
+	"github.com/sovyn-eu/skiff/internal/shquote"
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
@@ -60,16 +61,18 @@ func unionStrings(a, b []string) []string {
 func newApplyCmd(get func() *app.App) *cobra.Command {
 	var flags profileFlags
 	var setup, clear bool
+	var grants []string
 	cmd := &cobra.Command{
 		Use:   "apply NAME",
 		Short: "Apply the profile (./" + profile.RepoFile + " and the machine default) to a running VM",
 		Long: `apply grants the profile's capabilities and writes the agent configuration
 it declares (plugins, MCP servers, settings) into the guest, replacing what an
 earlier profile wrote. Grants are only added; revoke by hand what the profile
-no longer lists. With --setup the packages, tools, skills and setup script are
+no longer lists; --grant adds capabilities on top of the profile's, as on
+'skiff new'. With --setup the packages, tools, skills and setup script are
 installed again first, as 'skiff new' does. --clear removes the profile's
 configuration from the VM instead and forgets the profile; grants stay.`,
-		Example: "  skiff apply agent1\n  skiff apply agent1 --setup\n  skiff apply agent1 --profile ../other/.skiff\n  skiff apply agent1 --profile base.toml --profile .skiff\n  skiff apply agent1 --clear",
+		Example: "  skiff apply agent1\n  skiff apply agent1 --setup --grant github\n  skiff apply agent1 --profile ../other/.skiff\n  skiff apply agent1 --profile base.toml --profile .skiff\n  skiff apply agent1 --clear",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if clear {
@@ -79,14 +82,16 @@ configuration from the VM instead and forgets the profile; grants stay.`,
 			if err != nil {
 				return err
 			}
-			_, err = get().Apply(cmd.Context(), args[0], prof, nil, setup)
+			_, err = get().Apply(cmd.Context(), args[0], prof, grants, setup)
 			return err
 		},
 	}
 	flags.add(cmd)
 	cmd.Flags().BoolVar(&setup, "setup", false, "run the profile's installs (packages, tools, skills, setup) again")
 	cmd.Flags().BoolVar(&clear, "clear", false, "remove the profile's configuration from the VM and forget the profile (grants stay)")
+	cmd.Flags().StringArrayVar(&grants, "grant", nil, "also grant this capability, e.g. github (repeatable)")
 	cmd.MarkFlagsMutuallyExclusive("clear", "setup")
+	cmd.MarkFlagsMutuallyExclusive("clear", "grant")
 	cmd.MarkFlagsMutuallyExclusive("clear", "profile")
 	return cmd
 }
@@ -161,6 +166,27 @@ default needs no trust.`,
 		},
 	}
 	cmd.AddCommand(show, initCmd, lint, trust)
+	return cmd
+}
+
+// applyRetry is the `skiff apply` that finishes a VM whose profile failed
+// during `skiff new`: it selects the same profiles, in the same order, and
+// passes the --grant
+// capabilities again, which Apply had not stored yet. --trust is left out
+// because `new` already recorded the trust.
+func (f profileFlags) applyRetry(name string, grants []string) string {
+	cmd := "skiff apply " + shquote.Quote(name) + " --setup"
+	switch {
+	case f.skip:
+		cmd += " --no-profile"
+	default:
+		for _, path := range f.paths {
+			cmd += " --profile " + shquote.Quote(path)
+		}
+	}
+	for _, g := range grants {
+		cmd += " --grant " + shquote.Quote(g)
+	}
 	return cmd
 }
 

@@ -35,9 +35,12 @@ type Exec struct {
 	Stderr io.Writer
 }
 
-// NewExec returns an Exec wired to the process' standard streams.
-func NewExec() *Exec {
-	return &Exec{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr}
+// NewExec returns an Exec on the process' stdin and stderr whose commands
+// write their stdout to stdout: the terminal, or stderr while skiff's own
+// stdout carries a result (--json) or a byte stream, which output from a
+// setup script or an image build would otherwise corrupt.
+func NewExec(stdout io.Writer) *Exec {
+	return &Exec{Stdin: os.Stdin, Stdout: stdout, Stderr: os.Stderr}
 }
 
 // Silenced returns a Runner whose commands neither read nor write the

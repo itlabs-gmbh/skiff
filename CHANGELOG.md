@@ -15,6 +15,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
   tool can trust the profile it writes and pass the repository's `.skiff`
   next to it, which still needs your `skiff profile trust`. With a single
   `--profile` nothing changes.
+- `skiff apply --grant CAP` grants capabilities on top of the profile's, as
+  `skiff new --grant` does.
 
 ### Changed
 
@@ -24,6 +26,16 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - A file named twice with `--profile` is an error (its setup would run
   twice), and `--profile` together with `--no-profile` is refused instead of
   ignoring `--profile`.
+
+### Fixed
+
+- `skiff new --json` printed the output of the profile's setup script, and
+  of an image build on first use, to stdout before the JSON, so the JSON
+  could not be parsed. Commands skiff runs now write to stderr whenever
+  skiff's own stdout carries `--json` output.
+- When the setup failed during `skiff new`, the `--grant` capabilities were
+  lost, and `skiff apply` had no way to grant them again. The error now names
+  the command that finishes the VM (`skiff apply NAME --setup --grant ...`).
 
 ## [0.4.0] - 2026-11-04
 
