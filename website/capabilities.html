@@ -130,6 +130,13 @@ claude ──► 127.0.0.1:7777/claude/v1/messages
         </div>
         <p>Or grant while creating the VM: <code>skiff new agent1 --grant claude --grant github</code>. <code>skiff ls</code> shows the grants of every VM in the <code>GRANTS</code> column.</p>
 
+        <h3 id="profile-grants">Grants from a profile</h3>
+        <p>A <a href="docs.html#profiles">profile</a> can list grants too: <code>~/.skiff/profile.toml</code> for every VM, and a repository's <code>.skiff</code> or a <code>--profile</code> file for the VMs built from it. <code>skiff new</code> and <code>skiff apply</code> grant them together with <code>--grant</code>, through the same steps as <code>skiff grant</code>. A profile only ever adds grants; withdraw one with <code>skiff revoke</code>.</p>
+        <p>A repository file chooses grants for whatever runs in the VM afterwards, so skiff uses it only after <code>skiff profile trust</code> has recorded its content. To cap what any repository file may ask for, however often it is trusted, list the allowed grants in your machine default:</p>
+<pre class="code"># ~/.skiff/profile.toml
+allow_grants = ["claude", "github"]</pre>
+        <p>A repository file that asks for another grant, such as <code>ssh-agent</code>, is then refused before the trust check, so <code>--trust</code> does not lift the limit. <code>allow_grants = []</code> lets no repository file grant anything; without the key there is no limit. Grants you make yourself, with <code>--grant</code>, <code>skiff grant</code> or in the machine default's own <code>grants</code>, are not limited.</p>
+
         <h3>What <code>grant</code> does</h3>
         <ol>
           <li>Checks that every capability exists. A grant written as <code>cap:something</code> is refused: capabilities have no scopes.</li>
@@ -458,6 +465,7 @@ install as ~/.skiff/caps/gemini.toml? [y/N]</pre>
           <li><strong>The connection is the identity.</strong> Each VM's broker listens on its own socket on the Mac, and the only way in from a guest is that VM's own ssh forward. One VM can never present itself as another.</li>
           <li><strong>Default deny, re-checked per request.</strong> A revoke applies to the next request, not the next session.</li>
           <li><strong>Time-boxed.</strong> No session, no broker. The hole is open while you are working with the VM, not while it merely runs.</li>
+          <li><strong>A repository cannot grant itself.</strong> A <code>.skiff</code> is used only once you have trusted its current content, and <code>allow_grants</code> in your machine default caps what any repository file may ask for, trusted or not. The profile setup never runs with the broker or a forwarded SSH agent.</li>
           <li><strong>Reviewable.</strong> The secrets a capability can send are fixed in its file and shown before installation; upstreams must use TLS; route hosts cannot be <code>localhost</code> or an IP and cannot catch another capability's traffic.</li>
           <li><strong>Interception is narrow.</strong> Each VM has its own CA, whose key never leaves the Mac. Its certificate only vouches for the intercepted hosts and the names below them, never for IP addresses, so even a leaked key could not impersonate other sites. The broker terminates TLS only for named intercept routes of granted capabilities and passes nothing else through; every other connection from the guest goes its normal way.</li>
         </ul>
