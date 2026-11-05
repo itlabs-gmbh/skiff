@@ -23,9 +23,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - A refusal of untrusted profiles names every untrusted file and says what
   each one does by itself (before, the description included the machine
   default's grants).
-- A file named twice with `--profile` is an error (its setup would run
-  twice), and `--profile` together with `--no-profile` is refused instead of
-  ignoring `--profile`.
+- A file named twice with `--profile`, also through a symlink or hard link
+  or as the machine default, is an error (its setup would run twice), and
+  `--profile` together with `--no-profile` is refused instead of ignoring
+  `--profile`.
 
 ### Fixed
 

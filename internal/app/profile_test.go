@@ -139,8 +139,24 @@ func TestResolveProfileMergesSeveralFilesInOrder(t *testing.T) {
 	if _, err := app.ResolveProfile([]string{first, filepath.Join(dir, "missing")}, true); err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Errorf("every named file must exist, got %v", err)
 	}
-	if _, err := app.ResolveProfile([]string{first, second, filepath.Join(dir, ".", "plugin.toml")}, true); err == nil || !strings.Contains(err.Error(), "more than once") {
-		t.Errorf("a file named twice would run its setup twice, got %v", err)
+	// The same file under another name, through a symlink or a hard link,
+	// counts as named twice too.
+	symlink, hardlink := filepath.Join(t.TempDir(), "alias.toml"), filepath.Join(dir, "hard.toml")
+	if err := os.Symlink(first, symlink); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(first, hardlink); err != nil {
+		t.Fatal(err)
+	}
+	for _, again := range []string{filepath.Join(dir, ".", "plugin.toml"), symlink, hardlink} {
+		_, err := app.ResolveProfile([]string{first, second, again}, true)
+		if err == nil || !strings.Contains(err.Error(), "more than once") {
+			t.Errorf("%s names %s again and would run its setup twice, got %v", again, first, err)
+		}
+	}
+	// The machine default always applies, so naming it is naming it twice.
+	if _, err := app.ResolveProfile([]string{app.paths.ProfilePath()}, true); err == nil || !strings.Contains(err.Error(), "more than once") {
+		t.Errorf("the machine default named with --profile would run its setup twice, got %v", err)
 	}
 }
 

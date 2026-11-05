@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/sovyn-eu/skiff/internal/broker"
@@ -36,16 +35,17 @@ type readProfile struct {
 
 // resolveProfile also returns the repository files that were read.
 func (a *App) resolveProfile(repoFiles []string, explicit bool) (profile.Profile, []readProfile, error) {
-	if err := checkDistinct(repoFiles); err != nil {
-		return profile.Profile{}, nil, err
-	}
 	var merged profile.Profile
+	var seen fileSet
 	data, found, err := readOptional(a.paths.ProfilePath())
 	if err != nil {
 		return profile.Profile{}, nil, err
 	}
 	if found {
 		if merged, err = profile.Parse(string(data), a.paths.ProfilePath()); err != nil {
+			return profile.Profile{}, nil, err
+		}
+		if seen, err = seen.add(a.paths.ProfilePath()); err != nil {
 			return profile.Profile{}, nil, err
 		}
 	}
@@ -60,6 +60,9 @@ func (a *App) resolveProfile(repoFiles []string, explicit bool) (profile.Profile
 				return profile.Profile{}, nil, fmt.Errorf("profile %s does not exist", path)
 			}
 			continue
+		}
+		if seen, err = seen.add(path); err != nil {
+			return profile.Profile{}, nil, err
 		}
 		repo, err := profile.Parse(string(data), path)
 		if err != nil {
@@ -76,20 +79,29 @@ func (a *App) resolveProfile(repoFiles []string, explicit bool) (profile.Profile
 	return merged, read, nil
 }
 
-// checkDistinct refuses a file named twice: its setup script would run twice.
-func checkDistinct(paths []string) error {
-	seen := make(map[string]bool, len(paths))
-	for _, path := range paths {
-		abs, err := filepath.Abs(path)
-		if err != nil {
-			return fmt.Errorf("resolve %s: %w", path, err)
-		}
-		if seen[abs] {
-			return fmt.Errorf("profile %s is named more than once", path)
-		}
-		seen[abs] = true
+// fileSet holds the profile files read so far, by identity rather than by
+// name: a file reached twice, under another path, through a symlink or a
+// hard link, would run its setup twice. The machine default is the first
+// entry when it exists, as it always applies.
+type fileSet []seenFile
+
+type seenFile struct {
+	path string
+	info os.FileInfo
+}
+
+// add returns the set with path added, or an error when the file is in it.
+func (s fileSet) add(path string) (fileSet, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("read profile: %w", err)
 	}
-	return nil
+	for _, f := range s {
+		if os.SameFile(f.info, info) {
+			return nil, fmt.Errorf("profile %s is named more than once (also as %s)", path, f.path)
+		}
+	}
+	return append(s[:len(s):len(s)], seenFile{path: path, info: info}), nil
 }
 
 func readOptional(path string) ([]byte, bool, error) {
