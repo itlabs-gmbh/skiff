@@ -49,9 +49,17 @@ func TestExecRunFailure(t *testing.T) {
 	}
 }
 
-func TestNewExecUsesProcessStreams(t *testing.T) {
-	if e := NewExec(); e.Stdin == nil || e.Stdout == nil || e.Stderr == nil {
-		t.Fatal("NewExec must wire all streams")
+func TestNewExecSendsChildStdoutToTheGivenWriter(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	e := NewExec(stdout)
+	if e.Stdin == nil || e.Stderr == nil {
+		t.Fatal("NewExec must wire stdin and stderr")
+	}
+	if err := e.RunWithInput(context.Background(), strings.NewReader("ping"), "cat"); err != nil {
+		t.Fatalf("RunWithInput: %v", err)
+	}
+	if stdout.String() != "ping" {
+		t.Errorf("child stdout must reach the given writer, got %q", stdout.String())
 	}
 }
 

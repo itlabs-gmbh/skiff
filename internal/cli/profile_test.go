@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,10 @@ func TestApplyAndProfileCommands(t *testing.T) {
 	if !strings.Contains(out, "vm1 may now use: claude") || !fake.CalledWithSuffix("vm1.skiff -- bash -s") {
 		t.Errorf("apply output:\n%s\n%s", out, fake.Dump())
 	}
+	out, _, err = runIn(t, home, "", "apply", "vm1", "--profile", path, "--grant", "github")
+	if err != nil || !strings.Contains(out, "vm1 may now use: claude, github") {
+		t.Errorf("apply --grant: %v\n%s", err, out)
+	}
 	out, _, err = runIn(t, home, "", "profile", "show", "--vm", "vm1", "--render")
 	if err != nil || !strings.Contains(out, "vcpus = 4") || !strings.Contains(out, "enabledPlugins") {
 		t.Errorf("profile show --vm: %v\n%s", err, out)
@@ -124,5 +129,47 @@ func TestApplyAndProfileCommands(t *testing.T) {
 	out, _, err = runIn(t, home, "", "apply", "vm1", "--clear")
 	if err != nil || !strings.Contains(out, "no longer has a profile") {
 		t.Errorf("apply --clear: %v\n%s", err, out)
+	}
+}
+
+func TestNewNamesTheApplyRetryWithTheSameProfileWhenSetupFails(t *testing.T) {
+	path := writeProfile(t)
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"explicit file", []string{"--profile", path, "--trust", "--grant", "github"},
+			"skiff apply box --setup --profile " + path + " --grant github"},
+		{"default file", []string{"--grant", "github"}, "skiff apply box --setup --grant github"},
+		{"machine default only", []string{"--no-profile"}, "skiff apply box --setup --no-profile"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.WriteFile(filepath.Join(home, "profile.toml"), []byte("[guest]\npackages = [\"jq\"]\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			fake := runner.NewFake(func(name string, args []string) ([]byte, error) {
+				if name == "ssh" {
+					return nil, errors.New("apt failed")
+				}
+				return fakeHandler(t)(name, args)
+			})
+			root := newRoot(builder(fake, backendtest.New(), home,
+				app.WithPortProbe(func(context.Context, int) bool { return true }),
+				app.WithPortCheck(func(int) bool { return false })))
+			buf := &bytes.Buffer{}
+			root.SetOut(buf)
+			root.SetErr(buf)
+			root.SetArgs(append([]string{"new", "box"}, tc.args...))
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), "setup of box failed") {
+				t.Fatalf("want setup failure, got %v\n%s", err, buf.String())
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error must name %q, got %v", tc.want, err)
+			}
+		})
 	}
 }

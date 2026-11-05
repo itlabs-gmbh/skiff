@@ -25,7 +25,9 @@ func defaultBuilder(out io.Writer) (*app.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return app.New(runner.NewExec(), paths, out), nil
+	// Commands skiff runs write where skiff's own notes go, so with --json
+	// their output ends up on stderr too and stdout stays parseable.
+	return app.New(runner.NewExec(out), paths, out), nil
 }
 
 // Main runs the CLI and returns the process exit code. Ctrl-C or SIGTERM
