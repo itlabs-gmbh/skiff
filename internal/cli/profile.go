@@ -9,25 +9,27 @@ import (
 	"github.com/sovyn-eu/skiff/internal/vm"
 )
 
-// profileFlags selects the repository profile file: --profile names one,
-// --no-profile ignores it; the machine default always applies.
+// profileFlags selects the repository profile files: --profile names them
+// (repeatable, merged in order), --no-profile ignores ./.skiff; the machine
+// default always applies.
 type profileFlags struct {
-	path  string
+	paths []string
 	skip  bool
 	trust bool
 }
 
 func (f *profileFlags) add(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&f.path, "profile", "", "profile file to use instead of ./"+profile.RepoFile)
+	cmd.Flags().StringArrayVar(&f.paths, "profile", nil, "profile file to use instead of ./"+profile.RepoFile+" (repeatable; merged in order, a later file wins)")
 	cmd.Flags().BoolVar(&f.skip, "no-profile", false, "ignore ./"+profile.RepoFile+" (the machine default still applies)")
-	cmd.Flags().BoolVar(&f.trust, "trust", false, "trust the repository's profile file as it is now (like 'skiff profile trust')")
+	cmd.Flags().BoolVar(&f.trust, "trust", false, "trust the profile files as they are now (like 'skiff profile trust')")
+	cmd.MarkFlagsMutuallyExclusive("profile", "no-profile")
 }
 
 // resolve returns the merged profile the flags select, for a command that
-// acts on it: the repository file must be trusted.
+// acts on it: every repository file must be trusted.
 func (f profileFlags) resolve(a *app.App) (profile.Profile, error) {
-	repoFile, explicit := f.selection()
-	return a.ResolveTrustedProfile(repoFile, explicit, f.trust)
+	repoFiles, explicit := f.selection()
+	return a.ResolveTrustedProfile(repoFiles, explicit, f.trust)
 }
 
 // applyMachine takes the profile's size and ports for everything the user
@@ -70,7 +72,7 @@ no longer lists; --grant adds capabilities on top of the profile's, as on
 'skiff new'. With --setup the packages, tools, skills and setup script are
 installed again first, as 'skiff new' does. --clear removes the profile's
 configuration from the VM instead and forgets the profile; grants stay.`,
-		Example: "  skiff apply agent1\n  skiff apply agent1 --setup --grant github\n  skiff apply agent1 --profile ../other/.skiff\n  skiff apply agent1 --clear",
+		Example: "  skiff apply agent1\n  skiff apply agent1 --setup --grant github\n  skiff apply agent1 --profile ../other/.skiff\n  skiff apply agent1 --profile base.toml --profile .skiff\n  skiff apply agent1 --clear",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if clear {
@@ -111,8 +113,8 @@ date. Lists are joined, tables merged key by key, and a value in .skiff wins.`,
 		Short: "Print the merged profile, or the one applied to a VM with --vm",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			repoFile, explicit := showFlags.selection()
-			return get().ProfileShow(repoFile, explicit, vmName, render)
+			repoFiles, explicit := showFlags.selection()
+			return get().ProfileShow(repoFiles, explicit, vmName, render)
 		},
 	}
 	showFlags.add(show)
@@ -168,7 +170,8 @@ default needs no trust.`,
 }
 
 // applyRetry is the `skiff apply` that finishes a VM whose profile failed
-// during `skiff new`: it selects the same profile and passes the --grant
+// during `skiff new`: it selects the same profiles, in the same order, and
+// passes the --grant
 // capabilities again, which Apply had not stored yet. --trust is left out
 // because `new` already recorded the trust.
 func (f profileFlags) applyRetry(name string, grants []string) string {
@@ -176,8 +179,10 @@ func (f profileFlags) applyRetry(name string, grants []string) string {
 	switch {
 	case f.skip:
 		cmd += " --no-profile"
-	case f.path != "":
-		cmd += " --profile " + shquote.Quote(f.path)
+	default:
+		for _, path := range f.paths {
+			cmd += " --profile " + shquote.Quote(path)
+		}
 	}
 	for _, g := range grants {
 		cmd += " --grant " + shquote.Quote(g)
@@ -185,14 +190,14 @@ func (f profileFlags) applyRetry(name string, grants []string) string {
 	return cmd
 }
 
-// selection reports the repository file the flags name and whether it was
-// named explicitly.
-func (f profileFlags) selection() (string, bool) {
+// selection reports the repository files the flags name and whether they
+// were named explicitly.
+func (f profileFlags) selection() ([]string, bool) {
 	if f.skip {
-		return "", false
+		return nil, false
 	}
-	if f.path != "" {
-		return f.path, true
+	if len(f.paths) > 0 {
+		return f.paths, true
 	}
-	return profile.RepoFile, false
+	return []string{profile.RepoFile}, false
 }

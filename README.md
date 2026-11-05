@@ -231,6 +231,19 @@ file has to be trusted again. `--trust` on `new` or `apply` does it in the
 same run; `--no-profile` ignores the repository file (the machine default
 still applies). The machine default is your own file and needs no trust.
 
+`--profile FILE` uses another file than `./.skiff` and can be repeated. The
+files are merged in the order given, after the machine default, so a later
+file's values win and its setup runs later. Each file is trusted on its own:
+a tool can `skiff profile trust` the file it writes and still leave the
+repository's `.skiff` to you, and a refusal names every file that is not
+trusted. The hash is computed again from the bytes that are applied, so a
+file swapped after it was trusted is refused.
+
+```sh
+skiff profile trust ~/tool/base.toml          # the tool trusts only its own file
+skiff new agent1 --profile ~/tool/base.toml --profile ./.skiff
+```
+
 #### Keeping a VM up to date: `skiff apply`
 
 `apply` brings a running VM to the state of the profile after you edited

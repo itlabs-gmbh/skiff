@@ -17,18 +17,26 @@ import (
 )
 
 // ResolveProfile merges the machine default (~/.skiff/profile.toml) with the
-// repository file. An explicitly named repository file must exist; the
-// default name (.skiff) is simply skipped when it is missing. Both files
-// are optional, so the result may be zero.
-func (a *App) ResolveProfile(repoFile string, explicit bool) (profile.Profile, error) {
-	p, _, err := a.resolveProfile(repoFile, explicit)
+// repository files, in the order given: a later file's values win. Files
+// named explicitly must exist; the default name (.skiff) is simply skipped
+// when it is missing. All files are optional, so the result may be zero.
+func (a *App) ResolveProfile(repoFiles []string, explicit bool) (profile.Profile, error) {
+	p, _, err := a.resolveProfile(repoFiles, explicit)
 	return p, err
 }
 
-// resolveProfile also returns the bytes the repository file was parsed
-// from, so a trust check hashes exactly what will be applied.
-func (a *App) resolveProfile(repoFile string, explicit bool) (profile.Profile, []byte, error) {
+// readProfile is a repository file with the bytes it was parsed from, so a
+// trust check hashes exactly what will be applied.
+type readProfile struct {
+	path string
+	data []byte
+	prof profile.Profile
+}
+
+// resolveProfile also returns the repository files that were read.
+func (a *App) resolveProfile(repoFiles []string, explicit bool) (profile.Profile, []readProfile, error) {
 	var merged profile.Profile
+	var seen fileSet
 	data, found, err := readOptional(a.paths.ProfilePath())
 	if err != nil {
 		return profile.Profile{}, nil, err
@@ -37,31 +45,63 @@ func (a *App) resolveProfile(repoFile string, explicit bool) (profile.Profile, [
 		if merged, err = profile.Parse(string(data), a.paths.ProfilePath()); err != nil {
 			return profile.Profile{}, nil, err
 		}
+		if seen, err = seen.add(a.paths.ProfilePath()); err != nil {
+			return profile.Profile{}, nil, err
+		}
 	}
-	var repoData []byte
-	if repoFile != "" {
-		data, found, err := readOptional(repoFile)
+	var read []readProfile
+	for _, path := range repoFiles {
+		data, found, err := readOptional(path)
 		if err != nil {
 			return profile.Profile{}, nil, err
 		}
-		if !found && explicit {
-			return profile.Profile{}, nil, fmt.Errorf("profile %s does not exist", repoFile)
-		}
-		if found {
-			repo, err := profile.Parse(string(data), repoFile)
-			if err != nil {
-				return profile.Profile{}, nil, err
+		if !found {
+			if explicit {
+				return profile.Profile{}, nil, fmt.Errorf("profile %s does not exist", path)
 			}
-			merged = profile.Merge(merged, repo)
-			repoData = data
+			continue
 		}
+		if seen, err = seen.add(path); err != nil {
+			return profile.Profile{}, nil, err
+		}
+		repo, err := profile.Parse(string(data), path)
+		if err != nil {
+			return profile.Profile{}, nil, err
+		}
+		merged = profile.Merge(merged, repo)
+		read = append(read, readProfile{path: path, data: data, prof: repo})
 	}
 	// Each file was checked on its own; references between them (a plugin's
 	// marketplace) and the default alone are checked here, on every path.
 	if err := merged.Validate(); err != nil {
 		return profile.Profile{}, nil, fmt.Errorf("%s: %w", strings.Join(merged.Sources, " + "), err)
 	}
-	return merged, repoData, nil
+	return merged, read, nil
+}
+
+// fileSet holds the profile files read so far, by identity rather than by
+// name: a file reached twice, under another path, through a symlink or a
+// hard link, would run its setup twice. The machine default is the first
+// entry when it exists, as it always applies.
+type fileSet []seenFile
+
+type seenFile struct {
+	path string
+	info os.FileInfo
+}
+
+// add returns the set with path added, or an error when the file is in it.
+func (s fileSet) add(path string) (fileSet, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("read profile: %w", err)
+	}
+	for _, f := range s {
+		if os.SameFile(f.info, info) {
+			return nil, fmt.Errorf("profile %s is named more than once (also as %s)", path, f.path)
+		}
+	}
+	return append(s[:len(s):len(s)], seenFile{path: path, info: info}), nil
 }
 
 func readOptional(path string) ([]byte, bool, error) {
@@ -76,36 +116,33 @@ func readOptional(path string) ([]byte, bool, error) {
 }
 
 // ResolveTrustedProfile is ResolveProfile for commands that act on the
-// profile: a repository file must have been trusted (skiff profile trust)
-// in its current content, or trust records it now. The trust check and the
-// parse share one read of the file.
-func (a *App) ResolveTrustedProfile(repoFile string, explicit, trust bool) (profile.Profile, error) {
-	p, repoData, err := a.resolveProfile(repoFile, explicit)
+// profile: every repository file must have been trusted (skiff profile
+// trust) in its current content, or trust records the missing ones now.
+// Each file is checked on its own, against the bytes it was parsed from, so
+// a file swapped after it was trusted is refused. The machine default needs
+// no trust.
+func (a *App) ResolveTrustedProfile(repoFiles []string, explicit, trust bool) (profile.Profile, error) {
+	p, read, err := a.resolveProfile(repoFiles, explicit)
 	if err != nil {
 		return profile.Profile{}, err
 	}
-	if repoData == nil {
+	untrusted, err := a.untrustedProfiles(read)
+	if err != nil {
+		return profile.Profile{}, err
+	}
+	if len(untrusted) == 0 {
 		return p, nil
 	}
-	key, err := trustKey(repoFile, repoData)
-	if err != nil {
-		return profile.Profile{}, err
+	if !trust {
+		return profile.Profile{}, untrustedError(untrusted)
 	}
-	ok, err := a.isTrusted(key)
-	if err != nil {
-		return profile.Profile{}, err
-	}
-	switch {
-	case ok:
-		return p, nil
-	case trust:
-		if err := a.recordTrust(key); err != nil {
+	for _, u := range untrusted {
+		if err := a.recordTrust(u.key); err != nil {
 			return profile.Profile{}, err
 		}
-		a.printf("trusted %s (until it changes)\n", repoFile)
-		return p, nil
+		a.printf("trusted %s (until it changes)\n", u.path)
 	}
-	return profile.Profile{}, untrustedError(repoFile, p)
+	return p, nil
 }
 
 // Apply makes a profile the VM's: its grants are added to extra and granted,
@@ -294,7 +331,7 @@ func (a *App) storedProfile(name string) (*profile.Profile, error) {
 
 // ProfileShow prints the resolved profile, or the one applied to vmName,
 // and with render what the guest receives from it.
-func (a *App) ProfileShow(repoFile string, explicit bool, vmName string, render bool) error {
+func (a *App) ProfileShow(repoFiles []string, explicit bool, vmName string, render bool) error {
 	var p profile.Profile
 	if vmName != "" {
 		if err := vm.ValidateName(vmName); err != nil {
@@ -310,12 +347,12 @@ func (a *App) ProfileShow(repoFile string, explicit bool, vmName string, render 
 		p = *stored
 	} else {
 		var err error
-		if p, err = a.ResolveProfile(repoFile, explicit); err != nil {
+		if p, err = a.ResolveProfile(repoFiles, explicit); err != nil {
 			return err
 		}
 	}
 	if p.IsZero() {
-		a.printf("# no profile: neither %s nor %s exists\n", a.paths.ProfilePath(), repoFile)
+		a.printf("# no profile: none of %s exists\n", strings.Join(append([]string{a.paths.ProfilePath()}, repoFiles...), ", "))
 		return nil
 	}
 	text, err := p.Encode()
@@ -390,7 +427,7 @@ func (a *App) ProfileLint(path string, repoFile string) error {
 		a.printf("%s: ok\n", path)
 		return nil
 	}
-	p, err := a.ResolveProfile(repoFile, false)
+	p, err := a.ResolveProfile([]string{repoFile}, false)
 	if err != nil {
 		return err
 	}

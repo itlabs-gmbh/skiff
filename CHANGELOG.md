@@ -9,8 +9,24 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `--profile` on `new`, `apply` and `profile show` can be repeated. The files
+  are merged in the order given, after the machine default; a later file's
+  values win and its setup runs later. Each file is trusted on its own, so a
+  tool can trust the profile it writes and pass the repository's `.skiff`
+  next to it, which still needs your `skiff profile trust`. With a single
+  `--profile` nothing changes.
 - `skiff apply --grant CAP` grants capabilities on top of the profile's, as
   `skiff new --grant` does.
+
+### Changed
+
+- A refusal of untrusted profiles names every untrusted file and says what
+  each one does by itself (before, the description included the machine
+  default's grants).
+- A file named twice with `--profile`, also through a symlink or hard link
+  or as the machine default, is an error (its setup would run twice), and
+  `--profile` together with `--no-profile` is refused instead of ignoring
+  `--profile`.
 
 ### Fixed
 
