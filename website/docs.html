@@ -36,10 +36,10 @@
 
       <section id="install">
         <h2>Install</h2>
-        <p>skiff needs Apple Silicon, macOS 26 or newer (what Apple's <code>container</code> supports), Homebrew and Go 1.26+. Check a Mac with <code>skiff doctor</code>.</p>
-        <div class="cmd" data-copy="go install github.com/sovyn-eu/skiff/cmd/skiff@latest">
+        <p>skiff needs Apple Silicon, macOS 26 or newer (what Apple's <code>container</code> supports), and Homebrew. Check a Mac with <code>skiff doctor</code>.</p>
+        <div class="cmd" data-copy="brew install sovyn-eu/tap/skiff">
           <span class="prompt" aria-hidden="true">$</span>
-          <span class="text">go install github.com/sovyn-eu/skiff/cmd/skiff@latest</span>
+          <span class="text">brew install sovyn-eu/tap/skiff</span>
           <button type="button" aria-label="Copy the install command to the clipboard"></button>
         </div>
         <div class="cmd" data-copy="skiff prepare">
@@ -47,6 +47,7 @@
           <span class="text">skiff prepare</span>
           <button type="button" aria-label="Copy skiff prepare to the clipboard"></button>
         </div>
+        <p>With Go 1.26+ you can build it instead: <code>go install github.com/sovyn-eu/skiff/cmd/skiff@latest</code>.</p>
         <p><code>prepare</code> is a one-time setup of about a minute and safe to run again. It installs Apple's <code>container</code> through Homebrew if needed, starts its service, builds the guest image (Ubuntu 24.04 with systemd, sshd, your key and an internet-only firewall) and writes an SSH key pair to <code>~/.skiff</code>.</p>
       </section>
 

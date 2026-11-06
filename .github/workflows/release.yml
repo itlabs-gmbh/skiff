@@ -1,0 +1,180 @@
+name: Release
+
+# For a published GitHub release:
+#  1. archive: attaches skiff_<tag>_darwin_arm64.tar.gz and its sha256 to the
+#     release. An archive the release already has is reused, never rebuilt,
+#     so the checksum a published formula points at stays valid.
+#  2. formula: points the Homebrew formula in sovyn-eu/homebrew-tap at the
+#     latest release, whichever tag started the run. Prereleases are never the
+#     latest, and a run for an older tag republishes the latest one, so no
+#     run can downgrade Homebrew users or lose the update of a newer one.
+# Run it by hand for an existing release (e.g. one from before this workflow).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and publish, e.g. v0.6.0
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  GH_TOKEN: ${{ github.token }}
+  TAP_REPO: sovyn-eu/homebrew-tap # the git repository
+  TAP: sovyn-eu/tap # its name in brew
+  # GitHub's published SSH host key, so the push to the tap never trusts on
+  # first use: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+  GITHUB_HOST_KEY: github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+
+jobs:
+  archive:
+    name: Release archive
+    runs-on: macos-26
+    permissions:
+      contents: write # attach the archive to the release
+    concurrency:
+      group: release-archive-${{ github.event.release.tag_name || inputs.tag }}
+      cancel-in-progress: false
+    steps:
+      - name: Check the release
+        run: |
+          if [[ ! $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$TAG' is not a release tag like v1.2.3"
+            exit 1
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName > /dev/null
+          echo "ARCHIVE=skiff_${TAG}_darwin_arm64.tar.gz" >> "$GITHUB_ENV"
+
+      # The packaging comes from the workflow's own revision, the source from
+      # the tag: tags from before the packaging existed build all the same.
+      - uses: actions/checkout@v7
+        with:
+          path: tools
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          path: src
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - name: Build the archive, or reuse the attached one
+        run: |
+          mkdir -p dist
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$ARCHIVE"; then
+            echo "::notice::$TAG already has $ARCHIVE; reusing it so its published checksum stays valid"
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
+              --pattern "$ARCHIVE" --pattern "$ARCHIVE.sha256"
+            (cd dist && shasum -a 256 -c "$ARCHIVE.sha256")
+            echo "UPLOAD=false" >> "$GITHUB_ENV"
+          else
+            tools/scripts/dist.sh "$TAG" src dist
+            echo "UPLOAD=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check the binary
+        run: |
+          tar -xzf "dist/$ARCHIVE" -C "$RUNNER_TEMP" skiff
+          codesign --verify "$RUNNER_TEMP/skiff"
+          got=$("$RUNNER_TEMP/skiff" --version)
+          if [[ $got != "skiff version $TAG" ]]; then
+            echo "::error::the binary reports '$got', expected 'skiff version $TAG'"
+            exit 1
+          fi
+
+      # No --clobber: replacing a published archive would break the checksum
+      # in the formula. Delete both assets by hand to force a rebuild.
+      - name: Attach the archive to the release
+        if: env.UPLOAD == 'true'
+        run: gh release upload "$TAG" "dist/$ARCHIVE" "dist/$ARCHIVE.sha256" --repo "$GITHUB_REPOSITORY"
+
+  formula:
+    name: Homebrew formula
+    needs: archive
+    runs-on: macos-26
+    # One tap update at a time across all tags. GitHub keeps only one pending
+    # job per group, so a waiting job can be replaced by a later one; that is
+    # why every job publishes the latest release, looked up inside the lock,
+    # rather than the tag that started it.
+    concurrency:
+      group: homebrew-tap
+      cancel-in-progress: false
+    steps:
+      - name: Find the latest release
+        run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          if [[ ! $latest =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::the latest release '$latest' is not a release tag like v1.2.3"
+            exit 1
+          fi
+          checksum="skiff_${latest}_darwin_arm64.tar.gz.sha256"
+          if gh release view "$latest" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$checksum"; then
+            [[ $latest == "$TAG" ]] || echo "::notice::$TAG is not the latest release; publishing $latest instead"
+            echo "FORMULA_TAG=$latest" >> "$GITHUB_ENV"
+            echo "UPDATE_TAP=true" >> "$GITHUB_ENV"
+          else
+            echo "::notice::the latest release $latest has no archive yet; its own run updates the formula"
+            echo "UPDATE_TAP=false" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/checkout@v7
+        if: env.UPDATE_TAP == 'true'
+        with:
+          path: tools
+
+      - name: Clone the tap
+        if: env.UPDATE_TAP == 'true'
+        env:
+          DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [[ -z $DEPLOY_KEY ]]; then
+            echo "::error::secret HOMEBREW_TAP_DEPLOY_KEY is not set"
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          (umask 077 && printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/homebrew_tap)
+          printf '%s\n' "$GITHUB_HOST_KEY" >> ~/.ssh/known_hosts
+          ssh_cmd="ssh -i $HOME/.ssh/homebrew_tap -o IdentitiesOnly=yes"
+          echo "GIT_SSH_COMMAND=$ssh_cmd" >> "$GITHUB_ENV"
+          GIT_SSH_COMMAND=$ssh_cmd git clone "git@github.com:${TAP_REPO}.git" "$RUNNER_TEMP/homebrew-tap"
+
+      - name: Update the formula
+        if: env.UPDATE_TAP == 'true'
+        working-directory: ${{ runner.temp }}/homebrew-tap
+        run: |
+          archive="skiff_${FORMULA_TAG}_darwin_arm64.tar.gz"
+          gh release download "$FORMULA_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP" --pattern "$archive.sha256"
+          sha=$(cut -d' ' -f1 "$RUNNER_TEMP/$archive.sha256")
+          mkdir -p Formula
+          "$GITHUB_WORKSPACE/tools/scripts/homebrew-formula.sh" "$FORMULA_TAG" "$sha" > Formula/skiff.rb
+          cp "$GITHUB_WORKSPACE/tools/scripts/homebrew-tap-README.md" README.md
+          git add Formula/skiff.rb README.md
+          if git diff --cached --quiet; then
+            echo "The tap already has skiff $FORMULA_TAG."
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "skiff $FORMULA_TAG"
+          git branch -M main
+
+      # Install from the local clone first: a formula that does not install
+      # never reaches users.
+      - name: Install and test the formula
+        if: env.UPDATE_TAP == 'true'
+        run: |
+          brew tap "$TAP" "$RUNNER_TEMP/homebrew-tap"
+          brew install --formula "$TAP/skiff"
+          brew test "$TAP/skiff"
+          brew audit --strict --formula "$TAP/skiff"
+
+      - name: Push the formula
+        if: env.UPDATE_TAP == 'true'
+        working-directory: ${{ runner.temp }}/homebrew-tap
+        run: git push origin HEAD:main
