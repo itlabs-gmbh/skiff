@@ -135,8 +135,12 @@ func TestInterceptInjectsCredential(t *testing.T) {
 	if auth != "Bearer real-secret" || path != "/subscriptions" {
 		t.Errorf("upstream saw auth=%q path=%q", auth, path)
 	}
-	if log := e.audit.String(); !strings.Contains(log, `cap=cloud allow GET "/subscriptions" 200 host="`+interceptHost+`"`) {
-		t.Errorf("audit = %q", log)
+	// The line is written after the response has gone out.
+	waitFor(t, "the audit line", func() bool {
+		return strings.Contains(e.audit.String(), `cap=cloud allow GET "/subscriptions" 200 host="`+interceptHost+`"`)
+	})
+	if t.Failed() {
+		t.Logf("audit = %q", e.audit.String())
 	}
 }
 
