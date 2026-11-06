@@ -4,9 +4,10 @@ name: Release
 #  1. archive: attaches skiff_<tag>_darwin_arm64.tar.gz and its sha256 to the
 #     release. An archive the release already has is reused, never rebuilt,
 #     so the checksum a published formula points at stays valid.
-#  2. formula: if the tag is the latest release, points the Homebrew formula in
-#     sovyn-eu/homebrew-tap at that archive. Prereleases and older tags never
-#     touch the formula, so a re-run cannot downgrade Homebrew users.
+#  2. formula: points the Homebrew formula in sovyn-eu/homebrew-tap at the
+#     latest release, whichever tag started the run. Prereleases are never the
+#     latest, and a run for an older tag republishes the latest one, so no
+#     run can downgrade Homebrew users or lose the update of a newer one.
 # Run it by hand for an existing release (e.g. one from before this workflow).
 on:
   release:
@@ -97,19 +98,28 @@ jobs:
     name: Homebrew formula
     needs: archive
     runs-on: macos-26
-    # One tap update at a time across all tags; the latest-release check below
-    # runs inside this lock, so an older run cannot overtake a newer one.
+    # One tap update at a time across all tags. GitHub keeps only one pending
+    # job per group, so a waiting job can be replaced by a later one; that is
+    # why every job publishes the latest release, looked up inside the lock,
+    # rather than the tag that started it.
     concurrency:
       group: homebrew-tap
       cancel-in-progress: false
     steps:
-      - name: Check that this is the latest release
+      - name: Find the latest release
         run: |
           latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
-          if [[ $TAG == "$latest" ]]; then
+          if [[ ! $latest =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::the latest release '$latest' is not a release tag like v1.2.3"
+            exit 1
+          fi
+          checksum="skiff_${latest}_darwin_arm64.tar.gz.sha256"
+          if gh release view "$latest" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qxF "$checksum"; then
+            [[ $latest == "$TAG" ]] || echo "::notice::$TAG is not the latest release; publishing $latest instead"
+            echo "FORMULA_TAG=$latest" >> "$GITHUB_ENV"
             echo "UPDATE_TAP=true" >> "$GITHUB_ENV"
           else
-            echo "::notice::$TAG is not the latest release ($latest), the formula stays as it is"
+            echo "::notice::the latest release $latest has no archive yet; its own run updates the formula"
             echo "UPDATE_TAP=false" >> "$GITHUB_ENV"
           fi
 
@@ -138,20 +148,20 @@ jobs:
         if: env.UPDATE_TAP == 'true'
         working-directory: ${{ runner.temp }}/homebrew-tap
         run: |
-          archive="skiff_${TAG}_darwin_arm64.tar.gz"
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP" --pattern "$archive.sha256"
+          archive="skiff_${FORMULA_TAG}_darwin_arm64.tar.gz"
+          gh release download "$FORMULA_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP" --pattern "$archive.sha256"
           sha=$(cut -d' ' -f1 "$RUNNER_TEMP/$archive.sha256")
           mkdir -p Formula
-          "$GITHUB_WORKSPACE/tools/scripts/homebrew-formula.sh" "$TAG" "$sha" > Formula/skiff.rb
+          "$GITHUB_WORKSPACE/tools/scripts/homebrew-formula.sh" "$FORMULA_TAG" "$sha" > Formula/skiff.rb
           cp "$GITHUB_WORKSPACE/tools/scripts/homebrew-tap-README.md" README.md
           git add Formula/skiff.rb README.md
           if git diff --cached --quiet; then
-            echo "The tap already has skiff $TAG."
+            echo "The tap already has skiff $FORMULA_TAG."
             exit 0
           fi
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "skiff $TAG"
+              commit -m "skiff $FORMULA_TAG"
           git branch -M main
 
       # Install from the local clone first: a formula that does not install

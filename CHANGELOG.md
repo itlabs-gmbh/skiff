@@ -12,9 +12,9 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Homebrew: `brew install sovyn-eu/tap/skiff` installs a prebuilt binary with
   shell completions, no Go toolchain needed. Every published release now
   carries `skiff_vX.Y.Z_darwin_arm64.tar.gz` and its sha256; the release
-  workflow builds them and, for the latest release only, updates the formula
-  in [sovyn-eu/homebrew-tap](https://github.com/sovyn-eu/homebrew-tap) after
-  installing and testing it. `make dist VERSION=vX.Y.Z` builds the same
+  workflow builds them and points the formula in
+  [sovyn-eu/homebrew-tap](https://github.com/sovyn-eu/homebrew-tap) at the
+  latest release after installing and testing it. `make dist VERSION=vX.Y.Z` builds the same
   archive locally.
 
 ## [0.6.0] - 2026-11-05
