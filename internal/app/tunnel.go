@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sovyn-eu/skiff/internal/broker"
+	"github.com/sovyn-eu/skiff/internal/cap"
 	"github.com/sovyn-eu/skiff/internal/config"
 	"github.com/sovyn-eu/skiff/internal/grant"
 	"github.com/sovyn-eu/skiff/internal/intercept"
@@ -17,10 +18,25 @@ import (
 )
 
 // Tunnel makes this process the owner of a VM's broker and returns the
-// socket to forward plus a stop function that gives ownership up again. It
+// sockets to forward plus a stop function that gives ownership up again. It
 // fails with broker.ErrBusy while another process owns it. Tests replace it to
 // avoid real sockets.
-type Tunnel func(ctx context.Context, name string) (socket string, stop func(), err error)
+type Tunnel func(ctx context.Context, name string) (fwd Forwards, stop func(), err error)
+
+// Forwards is what the owner of a VM's broker forwards into the guest: the
+// broker's socket and one socket for every tcp capability granted when the
+// broker started.
+type Forwards struct {
+	Broker string
+	TCP    []TCPSocket
+}
+
+// TCPSocket is the socket on the Mac behind a tcp capability's guest port.
+type TCPSocket struct {
+	Cap    string
+	Port   int
+	Socket string
+}
 
 // WithTunnel overrides how the broker is started (used by tests).
 func WithTunnel(t Tunnel) Option {
@@ -30,7 +46,7 @@ func WithTunnel(t Tunnel) Option {
 // claimTunnel runs the configured Tunnel; the production one is bound late so
 // that a copy of the App (see standby) starts brokers with its own runner and
 // output.
-func (a *App) claimTunnel(ctx context.Context, name string) (string, func(), error) {
+func (a *App) claimTunnel(ctx context.Context, name string) (Forwards, func(), error) {
 	if a.tunnel != nil {
 		return a.tunnel(ctx, name)
 	}
@@ -65,7 +81,7 @@ func (a *App) sshExtraArgs(ctx context.Context, name string) ([]string, func(), 
 	if !needsBroker(set) {
 		return args, releaseAgent, nil
 	}
-	socket, stop, err := a.claimTunnel(ctx, name)
+	fwd, stop, err := a.claimTunnel(ctx, name)
 	switch {
 	case errors.Is(err, broker.ErrBusy):
 		// A `skiff tunnel` or another session owns the broker and its
@@ -76,7 +92,7 @@ func (a *App) sshExtraArgs(ctx context.Context, name string) ([]string, func(), 
 		releaseAgent()
 		return nil, nil, err
 	}
-	return append(args, brokerForward(socket)...), func() { stop(); releaseAgent() }, nil
+	return append(args, brokerForward(fwd)...), func() { stop(); releaseAgent() }, nil
 }
 
 // defaultBrokerWatch is how often a session waiting for a broker's owner to
@@ -125,72 +141,73 @@ func needsBroker(set grant.Set) bool {
 	return false
 }
 
-// brokerForward maps the guest's broker port onto the host socket. Without
-// ExitOnForwardFailure a squatter on the guest port would leave ssh running
-// with no tunnel and only a warning.
-func brokerForward(socket string) []string {
-	return []string{"-o", "ExitOnForwardFailure=yes", "-R", fmt.Sprintf("127.0.0.1:%d:%s", config.BrokerGuestPort, socket)}
+// brokerForward maps the guest's broker port, and the port of every tcp
+// capability, onto the host sockets. Without ExitOnForwardFailure a squatter
+// on a guest port would leave ssh running with no tunnel and only a warning.
+func brokerForward(fwd Forwards) []string {
+	args := []string{"-o", "ExitOnForwardFailure=yes", "-R", fmt.Sprintf("127.0.0.1:%d:%s", config.BrokerGuestPort, fwd.Broker)}
+	for _, t := range fwd.TCP {
+		args = append(args, "-R", fmt.Sprintf("127.0.0.1:%d:%s", t.Port, t.Socket))
+	}
+	return args
 }
 
 // startBroker is the production Tunnel: it claims the VM's broker and serves
-// it on a Unix socket until stop, which removes the socket before giving
+// it on Unix sockets until stop, which removes the sockets before giving
 // ownership up, so the next owner never finds a stale one in use.
-func (a *App) startBroker(ctx context.Context, name string) (string, func(), error) {
+func (a *App) startBroker(ctx context.Context, name string) (Forwards, func(), error) {
 	socket := a.paths.SocketPath(name)
 	release, err := broker.Claim(socket)
 	if err != nil {
-		return "", nil, err
+		return Forwards{}, nil, err
 	}
 	// A skiff from before ownership locks may still serve this socket.
 	if broker.Alive(socket) {
 		release()
-		return "", nil, broker.ErrBusy
+		return Forwards{}, nil, broker.ErrBusy
 	}
-	stop, err := a.serveBroker(ctx, name, socket)
+	tcp, stop, err := a.serveBroker(ctx, name, socket)
 	if err != nil {
 		release()
-		return "", nil, err
+		return Forwards{}, nil, err
 	}
-	return socket, func() {
+	return Forwards{Broker: socket, TCP: tcp}, func() {
 		stop()
 		release()
 	}, nil
 }
 
-// serveBroker listens on socket and serves the VM's broker until stop.
-func (a *App) serveBroker(ctx context.Context, name, socket string) (func(), error) {
+// serveBroker listens on socket and serves the VM's broker until stop. It
+// also listens for every tcp capability granted right now and returns those
+// sockets, which the caller forwards together with the broker's.
+func (a *App) serveBroker(ctx context.Context, name, socket string) ([]TCPSocket, func(), error) {
 	caps, err := a.loadCaps()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	data, err := a.templateData(name)
+	set, err := a.grantStore().Load(name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	audit, err := os.OpenFile(a.paths.AuditLog(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	forwards, err := a.tcpForwards(caps, set)
 	if err != nil {
-		return nil, fmt.Errorf("open audit log: %w", err)
+		return nil, nil, err
 	}
-	store := a.grantStore()
-	b := &broker.Broker{
-		VM:      name,
-		Caps:    caps,
-		Grants:  func() (grant.Set, error) { return store.Load(name) },
-		Secrets: secret.NewResolver(a.r),
-		Audit:   audit,
-		Data:    data,
-		Warn:    func(msg string) { a.printf("skiff: warning: %s\n", msg) },
-	}
-	caDir, err := store.InterceptDir(name)
+	b, closeBroker, err := a.openBroker(name, caps)
 	if err != nil {
-		_ = audit.Close()
-		return nil, err
+		return nil, nil, err
 	}
-	b.CA = &intercept.Watcher{Dir: caDir, Now: time.Now}
 	ln, err := broker.Listen(socket)
 	if err != nil {
-		_ = audit.Close()
-		return nil, err
+		closeBroker()
+		return nil, nil, err
+	}
+	tcp, err := a.serveTCP(b, name, caps, forwards)
+	if err != nil {
+		_ = ln.Close()
+		closeBroker()
+		_ = os.Remove(socket)
+		return nil, nil, err
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -200,11 +217,43 @@ func (a *App) serveBroker(ctx context.Context, name, socket string) (func(), err
 			a.printf("broker for %s stopped: %v\n", name, err)
 		}
 	}()
-	return func() {
+	return tcp, func() {
 		cancel()
 		<-done
+		closeBroker()
+		_ = os.Remove(socket)
+		removeSockets(tcp)
+	}, nil
+}
+
+// openBroker builds the VM's broker and opens its audit log. The returned
+// function closes the broker first, so its last lines still reach the log.
+func (a *App) openBroker(name string, caps cap.Set) (*broker.Broker, func(), error) {
+	data, err := a.templateData(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	store := a.grantStore()
+	caDir, err := store.InterceptDir(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	audit, err := os.OpenFile(a.paths.AuditLog(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open audit log: %w", err)
+	}
+	b := &broker.Broker{
+		VM:      name,
+		Caps:    caps,
+		Grants:  func() (grant.Set, error) { return store.Load(name) },
+		Secrets: secret.NewResolver(a.r),
+		Audit:   audit,
+		Data:    data,
+		Warn:    func(msg string) { a.printf("skiff: warning: %s\n", msg) },
+		CA:      &intercept.Watcher{Dir: caDir, Now: time.Now},
+	}
+	return b, func() {
 		b.Close()
 		_ = audit.Close()
-		_ = os.Remove(socket)
 	}, nil
 }

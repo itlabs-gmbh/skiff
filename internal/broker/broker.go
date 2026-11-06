@@ -1,7 +1,7 @@
 // Package broker is the one controlled hole in a microVM's isolation. It
 // listens on a per-VM Unix socket on the Mac (tunnelled into the guest by
 // `skiff ssh -R`), checks the VM's grants and hands out connections,
-// never secrets. It knows three primitives; everything else is a cap file.
+// never secrets. It knows four primitives; everything else is a cap file.
 package broker
 
 import (
@@ -63,6 +63,7 @@ type Broker struct {
 	mu       sync.Mutex
 	handlers map[string]http.Handler
 	bridges  []*mcpBridge
+	relays   []*tcpRelay
 	log      *syncWriter
 	closed   bool
 	warnOnce sync.Once
@@ -99,16 +100,24 @@ func (b *Broker) Handler() http.Handler {
 	return http.HandlerFunc(b.serve)
 }
 
-// Close stops child processes started for MCP caps.
+// Close stops child processes started for MCP caps and the relays of tcp
+// caps, with every connection they carry.
 func (b *Broker) Close() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.closed = true
 	for _, br := range b.bridges {
 		br.stop()
 	}
 	b.bridges = nil
 	b.handlers = nil
+	relays := b.relays
+	b.relays = nil
+	b.mu.Unlock()
+	// Outside the lock: a relay's connections write their last audit lines
+	// while it stops, and the audit writer takes the lock.
+	for _, r := range relays {
+		r.stop()
+	}
 }
 
 // detail writes a host-side diagnostic to the audit log. Guests only ever see
@@ -232,6 +241,8 @@ func (b *Broker) handlerFor(c cap.Cap, route *cap.Route) (http.Handler, error) {
 		h = br
 	case cap.KindExec:
 		h = b.newExec(c)
+	case cap.KindTCP:
+		h = tcpOverHTTP(c)
 	default:
 		err = fmt.Errorf("capability %q has no primitive", c.Name)
 	}

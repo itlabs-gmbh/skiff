@@ -68,8 +68,8 @@ func decodeAll(script string) string {
 	return out.String()
 }
 
-func fakeTunnel(ctx context.Context, name string) (string, func(), error) {
-	return "/tmp/fake-" + name + ".sock", func() {}, nil
+func fakeTunnel(ctx context.Context, name string) (Forwards, func(), error) {
+	return Forwards{Broker: "/tmp/fake-" + name + ".sock"}, func() {}, nil
 }
 
 func newGrantApp(t *testing.T, scripts *sshScripts, vms ...vm.Info) (*App, *runner.Fake) {
@@ -228,9 +228,9 @@ func TestSSHAttachesTunnelOnlyWithGrants(t *testing.T) {
 func TestSSHAgentOnlyNeedsNoBroker(t *testing.T) {
 	calls := 0
 	app, fake := newGrantApp(t, &sshScripts{state: "/etc/skiff/manifest\n\n"})
-	app.tunnel = func(ctx context.Context, name string) (string, func(), error) {
+	app.tunnel = func(ctx context.Context, name string) (Forwards, func(), error) {
 		calls++
-		return "", func() {}, nil
+		return Forwards{}, func() {}, nil
 	}
 	if _, err := app.Grant(context.Background(), "agent1", []string{"ssh-agent"}); err != nil {
 		t.Fatal(err)

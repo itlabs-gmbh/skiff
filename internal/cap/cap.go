@@ -1,7 +1,7 @@
 // Package cap defines capabilities: declarative descriptions of how the
 // broker on the Mac hands a connection into a microVM and what the guest needs
-// to use it. skiff's core knows three primitives (proxy, mcp, exec); every
-// harness-specific detail lives in a TOML file, never in Go code.
+// to use it. skiff's core knows four primitives (proxy, mcp, exec, tcp);
+// every harness-specific detail lives in a TOML file, never in Go code.
 package cap
 
 import (
@@ -22,6 +22,8 @@ const (
 	KindMCP Kind = "mcp"
 	// KindExec delegates each request to an external program.
 	KindExec Kind = "exec"
+	// KindTCP hands a port in the guest to an address on the Mac.
+	KindTCP Kind = "tcp"
 )
 
 const maxNameLength = 32
@@ -35,6 +37,7 @@ type Cap struct {
 	Proxy       *Proxy `toml:"proxy"`
 	MCP         *MCP   `toml:"mcp"`
 	Exec        *Exec  `toml:"exec"`
+	TCP         *TCP   `toml:"tcp"`
 	Guest       Guest  `toml:"guest"`
 
 	// Source records where the definition came from ("embedded" or a file path).
@@ -117,6 +120,8 @@ func (c Cap) Kind() Kind {
 		return KindMCP
 	case c.Exec != nil:
 		return KindExec
+	case c.TCP != nil:
+		return KindTCP
 	}
 	return ""
 }
@@ -153,13 +158,13 @@ func (c Cap) Validate() error {
 
 func (c Cap) validateKind() []string {
 	kinds := 0
-	for _, present := range []bool{c.Proxy != nil, c.MCP != nil, c.Exec != nil} {
+	for _, present := range []bool{c.Proxy != nil, c.MCP != nil, c.Exec != nil, c.TCP != nil} {
 		if present {
 			kinds++
 		}
 	}
 	if kinds != 1 {
-		return []string{"exactly one of [proxy], [mcp] or [exec] is required"}
+		return []string{"exactly one of [proxy], [mcp], [exec] or [tcp] is required"}
 	}
 	switch c.Kind() {
 	case KindProxy:
@@ -172,6 +177,8 @@ func (c Cap) validateKind() []string {
 		if c.Exec.Command == "" {
 			return []string{"exec.command is required"}
 		}
+	case KindTCP:
+		return c.TCP.validate()
 	}
 	return nil
 }
