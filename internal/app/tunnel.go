@@ -203,10 +203,14 @@ func (a *App) serveBroker(ctx context.Context, name, socket string) ([]TCPSocket
 		return nil, nil, err
 	}
 	tcp, err := a.serveTCP(b, name, caps, forwards)
+	if err == nil {
+		err = a.recordTCPForwards(name, tcp)
+	}
 	if err != nil {
 		_ = ln.Close()
 		closeBroker()
 		_ = os.Remove(socket)
+		removeSockets(tcp)
 		return nil, nil, err
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
@@ -223,6 +227,7 @@ func (a *App) serveBroker(ctx context.Context, name, socket string) ([]TCPSocket
 		closeBroker()
 		_ = os.Remove(socket)
 		removeSockets(tcp)
+		_ = os.Remove(a.paths.TCPForwardsPath(name))
 	}, nil
 }
 

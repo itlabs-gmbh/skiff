@@ -9,8 +9,13 @@
 # not go looking for the replica set's members on its own.
 #
 #   # on the Mac, with the real connection string (it stays here):
+#   go install github.com/coinbase/mongobetween@latest
 #   mongobetween -network unix -unlink \
 #     "$HOME/.skiff/mongo.sock=mongodb+srv://USER:PASSWORD@cluster.example.net/app"
+#
+# mongobetween leaves its socket open to every user of the Mac, so keep it in
+# a directory only you can enter; ~/.skiff is one. The connection string is
+# an argument of the process and shows in `ps` on the Mac, not in the VM.
 #
 #   cp examples/caps/mongodb.toml ~/.skiff/caps/      # set upstream to your path
 #   skiff grant agent1 mongodb
@@ -24,6 +29,11 @@
 #
 # The port is forwarded by sessions and tunnels opened after the grant. If the
 # guest runs a MongoDB of its own on 27017, choose another port here.
+#
+# Tried with MongoDB 8.0 as a single server and as a replica set, and with an
+# Atlas cluster (mongodb+srv, TLS, three members), with mongosh and the
+# Node.js driver in the guest: reads and writes, cursors, transactions and
+# change streams work.
 
 name = "mongodb"
 description = "MongoDB through a proxy on the Mac; the password stays there"

@@ -142,9 +142,16 @@ func TestStartBrokerServesGrantedTCPCaps(t *testing.T) {
 		t.Errorf("relayed %q, want %q", got, "ping")
 	}
 
+	if !app.servedTCP("agent1", "mongo", 27017) || app.servedTCP("agent1", "postgres", 5432) || app.servedTCP("agent1", "mongo", 5432) {
+		t.Errorf("the record of served capabilities should name mongo on 27017 only")
+	}
+
 	stop()
 	if _, err := os.Stat(socket); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("stop should remove the tcp socket, got %v", err)
+	}
+	if app.servedTCP("agent1", "mongo", 27017) {
+		t.Errorf("stop should remove the record of served capabilities")
 	}
 	log, _ := os.ReadFile(app.paths.AuditLog())
 	if !strings.Contains(string(log), "vm=agent1 cap=mongo allow TCP") {
@@ -330,6 +337,43 @@ func TestGrantOfTCPCapNotesOpenSession(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "claude reaches") {
 		t.Errorf("only tcp capabilities need the note:\n%s", out.String())
+	}
+
+	// A session that was opened while the capability was granted still
+	// forwards the port: after a revoke, granting it again works at once.
+	_ = ln.Close()
+	_, stop, err := app.startBroker(context.Background(), "agent1")
+	if err != nil {
+		t.Fatalf("startBroker: %v", err)
+	}
+	defer stop()
+	if _, err := app.Revoke(context.Background(), "agent1", []string{"mongo"}); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	out.Reset()
+	if _, err := app.Grant(context.Background(), "agent1", []string{"mongo"}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if strings.Contains(out.String(), note) {
+		t.Errorf("the open session already forwards the port, so nothing needs reopening:\n%s", out.String())
+	}
+	// Finding that out must not look like a connection from the guest.
+	if log, _ := os.ReadFile(app.paths.AuditLog()); strings.Contains(string(log), " TCP ") {
+		t.Errorf("a grant must not connect to the capability's socket:\n%s", log)
+	}
+
+	// Another capability on the same port is not what the session serves:
+	// its relay still answers for mongo and would refuse every connection.
+	writeTCPCap(t, app, "mongo-b", "127.0.0.1:27018", 27017)
+	if _, err := app.Revoke(context.Background(), "agent1", []string{"mongo"}); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	out.Reset()
+	if _, err := app.Grant(context.Background(), "agent1", []string{"mongo-b"}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if !strings.Contains(out.String(), "mongo-b reaches guest port 27017 through sessions and tunnels opened from now on") {
+		t.Errorf("want the note for a capability the open session does not serve:\n%s", out.String())
 	}
 }
 

@@ -78,6 +78,12 @@ func (p Paths) TCPSocketPath(vm string, port int) string {
 	return filepath.Join(p.RunDir(), fmt.Sprintf("%s.tcp-%d.sock", vm, port))
 }
 
+// TCPForwardsPath lists the tcp capabilities the VM's running broker serves,
+// so a grant can tell whether an open session forwards a port already.
+func (p Paths) TCPForwardsPath(vm string) string {
+	return filepath.Join(p.RunDir(), vm+".tcp.json")
+}
+
 // AuditLog records every broker decision.
 func (p Paths) AuditLog() string { return filepath.Join(p.Home, "audit.log") }
 
