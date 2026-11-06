@@ -28,18 +28,24 @@ plain Ubuntu image with systemd, sshd and skiff's key.
 - Apple Silicon (any generation)
 - macOS 26 or newer (what Apple's `container` supports)
 - Homebrew (skiff installs `container` through it if needed)
-- Go 1.26+ to build skiff
 
 Check with `skiff doctor`.
 
 ## Install
 
 ```sh
-go install github.com/sovyn-eu/skiff/cmd/skiff@latest
+brew install sovyn-eu/tap/skiff
 skiff prepare           # one-time setup, about a minute
 ```
 
-Or from a checkout: `make install` (go install ./cmd/skiff → `$(go env GOPATH)/bin/skiff`).
+The formula installs a prebuilt binary and the shell completions; `brew
+upgrade skiff` picks up new releases. Each [release](https://github.com/sovyn-eu/skiff/releases)
+also carries the archive (`skiff_vX.Y.Z_darwin_arm64.tar.gz`) and its
+sha256.
+
+With Go 1.26+ you can build it instead:
+`go install github.com/sovyn-eu/skiff/cmd/skiff@latest`, or `make install`
+from a checkout (→ `$(go env GOPATH)/bin/skiff`).
 
 `skiff prepare` is idempotent. It:
 
