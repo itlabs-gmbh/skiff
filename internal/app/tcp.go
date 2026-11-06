@@ -92,14 +92,18 @@ func removeSockets(sockets []TCPSocket) {
 
 // noteTCPForwards says that the tcp capabilities among requested only reach
 // the guest through sessions started from now on: ssh fixes its forwards
-// when it connects, so a session that is already open cannot add one.
+// when it connects, so a session that is already open cannot add one. It
+// stays quiet about a port the open session forwards already, which is the
+// case when the capability is granted again after a revoke.
 func (a *App) noteTCPForwards(name string, caps cap.Set, requested grant.Set) {
 	if !broker.Alive(a.paths.SocketPath(name)) {
 		return
 	}
 	for _, g := range requested {
-		if c, ok := caps[g.Cap]; ok && c.TCP != nil {
-			a.printf("note: %s reaches guest port %d through sessions and tunnels opened from now on; close the open ones first\n", g.Cap, c.TCP.Port)
+		c, ok := caps[g.Cap]
+		if !ok || c.TCP == nil || broker.Alive(a.paths.TCPSocketPath(name, c.TCP.Port)) {
+			continue
 		}
+		a.printf("note: %s reaches guest port %d through sessions and tunnels opened from now on; close the open ones first\n", g.Cap, c.TCP.Port)
 	}
 }

@@ -331,6 +331,24 @@ func TestGrantOfTCPCapNotesOpenSession(t *testing.T) {
 	if strings.Contains(out.String(), "claude reaches") {
 		t.Errorf("only tcp capabilities need the note:\n%s", out.String())
 	}
+
+	// A session that was opened while the capability was granted still
+	// forwards the port: after a revoke, granting it again works at once.
+	tcp, err := broker.Listen(app.paths.TCPSocketPath("agent1", 27017))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tcp.Close()
+	if _, err := app.Revoke(context.Background(), "agent1", []string{"mongo"}); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	out.Reset()
+	if _, err := app.Grant(context.Background(), "agent1", []string{"mongo"}); err != nil {
+		t.Fatalf("Grant: %v", err)
+	}
+	if strings.Contains(out.String(), note) {
+		t.Errorf("the open session already forwards the port, so nothing needs reopening:\n%s", out.String())
+	}
 }
 
 func TestSessionForwardsTCPCaps(t *testing.T) {
