@@ -1,9 +1,14 @@
 # sovyn-eu Homebrew tap
 
 ```sh
+brew tap sovyn-eu/tap
+brew trust --formula sovyn-eu/tap/skiff
 brew install sovyn-eu/tap/skiff
 skiff prepare
 ```
+
+Homebrew 7 loads formulas from taps outside Homebrew only once you trust
+them; `brew trust --formula` covers just that formula.
 
 | Formula | What it is |
 |---|---|

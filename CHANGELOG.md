@@ -9,8 +9,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Homebrew: `brew install sovyn-eu/tap/skiff` installs a prebuilt binary with
-  shell completions, no Go toolchain needed. Every published release now
+- Homebrew: `brew tap sovyn-eu/tap`, `brew trust --formula
+  sovyn-eu/tap/skiff` (Homebrew 7 loads third-party formulas only once
+  trusted) and `brew install sovyn-eu/tap/skiff` install a prebuilt binary
+  with shell completions, no Go toolchain needed. Every published release now
   carries `skiff_vX.Y.Z_darwin_arm64.tar.gz` and its sha256; the release
   workflow builds them and points the formula in
   [sovyn-eu/homebrew-tap](https://github.com/sovyn-eu/homebrew-tap) at the
