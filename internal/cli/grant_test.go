@@ -16,7 +16,9 @@ func runIn(t *testing.T, home string, stdin string, args ...string) (string, *ru
 	t.Helper()
 	fake := runner.NewFake(fakeHandler(t))
 	buf := &bytes.Buffer{}
-	tunnel := func(ctx contextT, name string) (string, func(), error) { return "/tmp/t.sock", func() {}, nil }
+	tunnel := func(ctx contextT, name string) (app.Forwards, func(), error) {
+		return app.Forwards{Broker: "/tmp/t.sock"}, func() {}, nil
+	}
 	root := newRoot(builder(fake, seededBackend(), home, app.WithTunnel(tunnel)))
 	root.SetOut(buf)
 	root.SetErr(buf)

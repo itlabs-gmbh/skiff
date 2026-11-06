@@ -64,6 +64,7 @@ func (a *App) Grant(ctx context.Context, name string, specs []string) (grant.Set
 		return nil, err
 	}
 	a.printf("%s may now use: %s\n", name, strings.Join(set.Caps(), ", "))
+	a.noteTCPForwards(name, caps, requested)
 	return set, nil
 }
 
@@ -186,6 +187,11 @@ func (a *App) provision(ctx context.Context, name string, caps cap.Set, set gran
 // VM's profile (the stored one when prof is nil). A profile is rendered as a
 // pseudo-capability, so a clash with a cap is reported like one between caps.
 func (a *App) renderPlan(name string, caps cap.Set, set grant.Set, prof *profile.Profile) (guest.Plan, error) {
+	// Checked here, before the guest is touched: a grant must not be given
+	// that no session could serve afterwards.
+	if _, err := a.tcpForwards(caps, set); err != nil {
+		return guest.Plan{}, err
+	}
 	data, err := a.templateData(name)
 	if err != nil {
 		return guest.Plan{}, err

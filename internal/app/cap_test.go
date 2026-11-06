@@ -187,12 +187,13 @@ func TestStartBrokerServesSocket(t *testing.T) {
 	if err := app.grantStore().Save("agent1", nil); err != nil {
 		t.Fatal(err)
 	}
-	socket, stop, err := app.startBroker(context.Background(), "agent1")
+	fwd, stop, err := app.startBroker(context.Background(), "agent1")
 	if err != nil {
 		t.Fatalf("startBroker: %v", err)
 	}
-	if socket != app.paths.SocketPath("agent1") {
-		t.Errorf("socket = %q", socket)
+	socket := fwd.Broker
+	if socket != app.paths.SocketPath("agent1") || len(fwd.TCP) != 0 {
+		t.Errorf("forwards = %+v", fwd)
 	}
 	if _, _, err := app.startBroker(context.Background(), "agent1"); !errors.Is(err, broker.ErrBusy) {
 		t.Errorf("a second start must find the broker owned, got %v", err)

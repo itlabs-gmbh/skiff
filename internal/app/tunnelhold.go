@@ -69,7 +69,7 @@ func (a *App) Tunnel(ctx context.Context, name string) error {
 // owner, so none can outlive the broker it points to. Ownership is kept
 // across reconnects.
 func (a *App) holdTunnel(ctx context.Context, name string) error {
-	socket, stop, err := a.awaitBroker(ctx, name)
+	fwd, stop, err := a.awaitBroker(ctx, name)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -82,35 +82,38 @@ func (a *App) holdTunnel(ctx context.Context, name string) error {
 	if ctx.Err() != nil {
 		return nil
 	}
-	return a.keepForwarded(ctx, name, socket)
+	for _, t := range fwd.TCP {
+		a.printf("%s on guest 127.0.0.1:%d\n", t.Cap, t.Port)
+	}
+	return a.keepForwarded(ctx, name, fwd)
 }
 
 // awaitBroker claims the VM's broker, waiting while another process owns it.
-func (a *App) awaitBroker(ctx context.Context, name string) (string, func(), error) {
+func (a *App) awaitBroker(ctx context.Context, name string) (Forwards, func(), error) {
 	announced := false
 	for {
-		socket, stop, err := a.claimTunnel(ctx, name)
+		fwd, stop, err := a.claimTunnel(ctx, name)
 		if !errors.Is(err, broker.ErrBusy) {
-			return socket, stop, err
+			return fwd, stop, err
 		}
 		if !announced {
 			a.printf("another session serves %s's broker; taking over when it ends\n", name)
 			announced = true
 		}
 		if !sleepCtx(ctx, a.brokerWatch) {
-			return "", nil, ctx.Err()
+			return Forwards{}, nil, ctx.Err()
 		}
 	}
 }
 
 // keepForwarded reconnects the forward with backoff until ctx ends or the VM
 // is no longer running.
-func (a *App) keepForwarded(ctx context.Context, name, socket string) error {
+func (a *App) keepForwarded(ctx context.Context, name string, fwd Forwards) error {
 	var wait time.Duration
 	failures := 0
 	for {
 		started := time.Now()
-		sshErr := a.forwardOnce(ctx, name, socket)
+		sshErr := a.forwardOnce(ctx, name, fwd)
 		if ctx.Err() != nil {
 			a.printf("broker tunnel for %s closed\n", name)
 			return nil
@@ -146,10 +149,10 @@ func (a *App) nextTunnelRetry(prev, lasted time.Duration) time.Duration {
 }
 
 // forwardOnce runs one ssh connection that executes nothing (-N), never reads
-// the terminal (-n) and only carries the broker forward.
-func (a *App) forwardOnce(ctx context.Context, name, socket string) error {
+// the terminal (-n) and only carries the broker's forwards.
+func (a *App) forwardOnce(ctx context.Context, name string, fwd Forwards) error {
 	args := append([]string{"-N", "-n"}, tunnelKeepAlive...)
-	args = append(args, brokerForward(socket)...)
+	args = append(args, brokerForward(fwd)...)
 	a.auditTunnel(name, "open", "")
 	err := a.r.Run(ctx, "ssh", append(args, a.sshArgs(name, nil)...)...)
 	a.auditTunnel(name, "closed", sshEnd(err))

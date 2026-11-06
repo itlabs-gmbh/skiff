@@ -5,7 +5,7 @@ GOFLAGS ?=
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
 LDFLAGS := -X github.com/sovyn-eu/skiff/internal/cli.version=$(VERSION)
 
-.PHONY: build install test cover lint e2e e2e-intercept dist clean
+.PHONY: build install test cover lint e2e e2e-intercept e2e-tcp dist clean
 
 build:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o bin/$(BINARY) ./cmd/$(BINARY)
@@ -33,6 +33,9 @@ e2e: build
 
 e2e-intercept: build
 	scripts/e2e-intercept.sh ./bin/$(BINARY)
+
+e2e-tcp: build
+	scripts/e2e-tcp.sh ./bin/$(BINARY)
 
 # Release archive for Apple Silicon, what the Homebrew formula installs:
 # dist/skiff_$(VERSION)_darwin_arm64.tar.gz and its sha256.

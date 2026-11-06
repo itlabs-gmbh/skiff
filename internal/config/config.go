@@ -71,6 +71,13 @@ func (p Paths) RunDir() string { return filepath.Join(p.Home, "run") }
 // SocketPath is the broker socket for a VM.
 func (p Paths) SocketPath(vm string) string { return filepath.Join(p.RunDir(), vm+".sock") }
 
+// TCPSocketPath is the socket a VM's guest port is forwarded to for a tcp
+// capability. VM names contain no dots, so it never collides with a broker
+// socket; the port keeps it short and is unique among a VM's granted caps.
+func (p Paths) TCPSocketPath(vm string, port int) string {
+	return filepath.Join(p.RunDir(), fmt.Sprintf("%s.tcp-%d.sock", vm, port))
+}
+
 // AuditLog records every broker decision.
 func (p Paths) AuditLog() string { return filepath.Join(p.Home, "audit.log") }
 

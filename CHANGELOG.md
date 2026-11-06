@@ -9,6 +9,18 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`tcp` capabilities.** A capability file with `[tcp]` sets `port`, a port
+  on the guest's `127.0.0.1`, and `upstream`, a `host:port` or
+  `unix:/absolute/path` as seen from the Mac. The broker checks the grant for
+  every connection, carries the bytes and writes `allow`, `deny`, `fail` and
+  `close` lines with the byte counts to the audit log; it injects nothing, so
+  the credential stays with a proxy on the Mac (mongobetween, PgBouncer, the
+  Cloud SQL Auth Proxy). A revoke also closes the connections that are open,
+  within about two seconds. The port is forwarded by sessions and tunnels
+  opened after the grant, and `skiff grant` says so when one is open. Two
+  granted capabilities cannot share a guest port, and an upstream among
+  skiff's own sockets is refused. `examples/caps/mongodb.toml` shows MongoDB;
+  `make e2e-tcp` tests the mechanism against a real VM.
 - Homebrew: `brew tap sovyn-eu/tap`, `brew trust --formula
   sovyn-eu/tap/skiff` (Homebrew 7 loads third-party formulas only once
   trusted) and `brew install sovyn-eu/tap/skiff` install a prebuilt binary

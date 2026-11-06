@@ -42,6 +42,7 @@
         <li><a href="#ssh-keys">SSH keys instead of tokens</a></li>
         <li><a href="#azure">Azure CLI without a token in the VM</a></li>
         <li><a href="#azure-devops">Azure DevOps without a PAT</a></li>
+        <li><a href="#databases">Databases without the password in the VM</a></li>
         <li><a href="#other">Codex, Gemini and others</a></li>
         <li><a href="#runners">Editors and agent runners</a></li>
         <li><a href="#pools">Many agents, side by side</a></li>
@@ -200,6 +201,24 @@ az group list -o table</pre>
         <p>In the guest, clone as usual:</p>
 <pre class="code">git clone https://dev.azure.com/&lt;org&gt;/&lt;project&gt;/_git/&lt;repo&gt;</pre>
         <p>For <code>az devops</code>, grant <code>azure</code> and <code>azure-identity</code> from <a href="#azure">the previous section</a> as well, because <code>az login --identity</code> lists subscriptions on Resource Manager. The VM can do in Azure DevOps what your <code>az</code> login can do, in every organization of your tenant; the file explains how to use a dedicated identity instead. If you already keep a PAT-based <code>azure-devops.toml</code>, this one replaces it under the same name: copy it over, run <code>skiff grant</code> again for the VMs that use it, and close their sessions and tunnels before starting a new one, because a running broker keeps the capability files it started with. SSH remotes are not intercepted; use the <a href="#ssh-keys"><code>ssh-agent</code> grant</a> for them.</p>
+      </section>
+
+      <section id="databases">
+        <h2>Databases without the password in the VM</h2>
+        <p>A connection string in a <code>.env</code> carries the password, and whatever the app in the VM can read, the agent can read too. A database login cannot be swapped in flight like an HTTP header, because the client proves that it knows the password without ever sending it. So the login moves to the Mac: a proxy there holds the real connection string and accepts clients without credentials, and a <a href="capabilities.html#tcp"><code>tcp</code> capability</a> hands its port into the VM. For MongoDB, <a href="https://github.com/coinbase/mongobetween">mongobetween</a> is such a proxy; PgBouncer and the Cloud SQL Auth Proxy play that part for PostgreSQL. The repository ships the capability for MongoDB:</p>
+        <div class="cmd" data-copy="curl -fsSL --create-dirs https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/mongodb.toml -o ~/.skiff/caps/mongodb.toml">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">curl -fsSL --create-dirs https://raw.githubusercontent.com/sovyn-eu/skiff/main/examples/caps/mongodb.toml -o ~/.skiff/caps/mongodb.toml</span>
+          <button type="button" aria-label="Copy the download command to the clipboard"></button>
+        </div>
+        <p>Start the proxy on the Mac as the file's comments show, set <code>upstream</code> in the file to the proxy's socket or <code>host:port</code>, then lint and grant:</p>
+        <div class="cmd" data-copy="skiff cap lint mongodb &amp;&amp; skiff grant task-42 mongodb">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span class="text">skiff cap lint mongodb &amp;&amp; skiff grant task-42 mongodb</span>
+          <button type="button" aria-label="Copy the lint and grant command to the clipboard"></button>
+        </div>
+        <p>The port appears in the sessions and tunnels you open after the grant. In the guest, <code>MONGODB_URI</code> is <code>mongodb://127.0.0.1:27017/app</code>, with no user and no password, and every connection is checked against the grants and written to the audit log. If the VM runs a MongoDB of its own on that port, choose another <code>port</code> in the file.</p>
+        <p>The proxy protects the password, not the data: the VM can read and write whatever the database user behind the proxy may, so give the proxy a user that is limited to the development database. Many tasks need no shared database at all. A database inside the VM with test data has no secret to protect.</p>
       </section>
 
       <section id="other">

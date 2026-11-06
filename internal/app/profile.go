@@ -272,6 +272,7 @@ func (a *App) Apply(ctx context.Context, name string, p profile.Profile, extra [
 	if len(set) > 0 {
 		a.printf("%s may now use: %s\n", name, strings.Join(set.Caps(), ", "))
 	}
+	a.noteTCPForwards(name, caps, requested)
 	return set, nil
 }
 

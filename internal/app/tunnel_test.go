@@ -173,15 +173,15 @@ type ownedBroker struct {
 	acquires int
 }
 
-func (o *ownedBroker) tunnel(ctx context.Context, name string) (string, func(), error) {
+func (o *ownedBroker) tunnel(ctx context.Context, name string) (Forwards, func(), error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.held {
-		return "", nil, broker.ErrBusy
+		return Forwards{}, nil, broker.ErrBusy
 	}
 	o.held = true
 	o.acquires++
-	return "/tmp/fake-" + name + ".sock", o.release, nil
+	return Forwards{Broker: "/tmp/fake-" + name + ".sock"}, o.release, nil
 }
 
 func (o *ownedBroker) release() {
@@ -342,7 +342,7 @@ func TestStandbyAuditsFailedTakeovers(t *testing.T) {
 	script := &tunnelScript{states: []string{"running"}}
 	app, _, _ := newSharedBrokerApp(t, script.handle)
 	broken := errors.New("load caps: bad toml")
-	app.tunnel = func(ctx context.Context, name string) (string, func(), error) { return "", nil, broken }
+	app.tunnel = func(ctx context.Context, name string) (Forwards, func(), error) { return Forwards{}, nil, broken }
 	stop := app.standby(context.Background(), "agent1")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -409,10 +409,10 @@ func TestHoldTunnelReleasesClaimWhenCancelledDuringTakeover(t *testing.T) {
 	defer cancel()
 	app, _, owner := newSharedBrokerApp(t, (&tunnelScript{states: []string{"running"}}).handle)
 	owner.release()
-	app.tunnel = func(c context.Context, name string) (string, func(), error) {
-		socket, stop, err := owner.tunnel(c, name)
+	app.tunnel = func(c context.Context, name string) (Forwards, func(), error) {
+		fwd, stop, err := owner.tunnel(c, name)
 		cancel() // the session ends just as the takeover succeeds
-		return socket, stop, err
+		return fwd, stop, err
 	}
 	if err := app.holdTunnel(ctx, "agent1"); err != nil {
 		t.Fatalf("holdTunnel: %v", err)

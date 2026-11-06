@@ -8,7 +8,7 @@ func Skeleton(name string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf(`# skiff capability %q
-# Exactly one of [proxy], [mcp] or [exec] decides what the broker does.
+# Exactly one of [proxy], [mcp], [exec] or [tcp] decides what the broker does.
 # Grant it to a VM with: skiff grant <vm> %s
 
 name = %q
@@ -39,6 +39,14 @@ Authorization = "Bearer {{ secret \"keychain:skiff/%s-token\" }}"
 # --- exec: delegate each request to a program on the Mac (stdin -> stdout)
 # [exec]
 # command = "skiff-cap-%s"
+
+# --- tcp: a port on the guest's 127.0.0.1 that reaches an address on the Mac,
+# for databases and other services that do not speak HTTP. The broker injects
+# nothing: run a proxy on the Mac that logs in upstream and point upstream at
+# it (host:port or unix:/absolute/path), so the guest needs no password.
+# [tcp]
+# upstream = "127.0.0.1:5433"
+# port = 5432
 
 # --- guest: what the microVM needs; templates see .VM, .BrokerURL, .PseudoToken
 [guest.env]

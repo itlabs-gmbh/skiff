@@ -68,6 +68,9 @@ func (a *App) CapShow(name string, render bool, vmName string) error {
 		return err
 	}
 	a.printf("# guest configuration of %s for %s\n", name, vmName)
+	if c.TCP != nil {
+		a.printf("tcp 127.0.0.1:%d\n", c.TCP.Port)
+	}
 	a.printPlan(plan)
 	return nil
 }
@@ -308,6 +311,8 @@ func capSummary(c cap.Cap) string {
 		fmt.Fprintf(&b, "=> %s runs %q on this Mac\n", c.Name, strings.Join(append([]string{c.MCP.Command}, c.MCP.Args...), " "))
 	case cap.KindExec:
 		fmt.Fprintf(&b, "=> %s runs %q on this Mac for every request\n", c.Name, strings.Join(append([]string{c.Exec.Command}, c.Exec.Args...), " "))
+	case cap.KindTCP:
+		fmt.Fprintf(&b, "=> %s lets the guest connect to %s as seen from this Mac, on guest port %d\n", c.Name, c.TCP.Upstream, c.TCP.Port)
 	}
 	return b.String()
 }
