@@ -34,11 +34,15 @@ Check with `skiff doctor`.
 ## Install
 
 ```sh
+brew tap sovyn-eu/tap
+brew trust --formula sovyn-eu/tap/skiff
 brew install sovyn-eu/tap/skiff
 skiff prepare           # one-time setup, about a minute
 ```
 
-The formula installs a prebuilt binary and the shell completions; `brew
+Homebrew 7 loads formulas from taps outside Homebrew only once you trust
+them; `brew trust` covers just this formula, not the whole tap. The formula
+installs a prebuilt binary and the shell completions; `brew
 upgrade skiff` picks up new releases. Each [release](https://github.com/sovyn-eu/skiff/releases)
 also carries the archive (`skiff_vX.Y.Z_darwin_arm64.tar.gz`) and its
 sha256.
