@@ -9,6 +9,24 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 Nothing yet.
 
+## [0.7.1] - 2026-11-06
+
+The MongoDB example is now tried end to end, and one misleading hint from
+`skiff grant` is gone.
+
+### Fixed
+
+- `skiff grant` no longer says that a `tcp` capability needs a new session
+  when the open one forwards its port already, as it does when the
+  capability is granted again after a revoke.
+
+### Changed
+
+- `examples/caps/mongodb.toml` says how to install mongobetween, where to
+  keep its socket and what the setup was tried with: MongoDB 8.0 as a single
+  server and as a replica set, and an Atlas cluster, with mongosh and the
+  Node.js driver.
+
 ## [0.7.0] - 2026-11-06
 
 Capabilities can now hand a TCP port into the VM, so a database works there
@@ -406,7 +424,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/sovyn-eu/skiff/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/sovyn-eu/skiff/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/sovyn-eu/skiff/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/sovyn-eu/skiff/compare/v0.5.0...v0.5.1
