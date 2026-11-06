@@ -5,10 +5,6 @@ GOFLAGS ?=
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
 LDFLAGS := -X github.com/sovyn-eu/skiff/internal/cli.version=$(VERSION)
 
-# Release archive for Apple Silicon, what the Homebrew formula installs.
-DIST_ARCHIVE := $(BINARY)_$(VERSION)_darwin_arm64.tar.gz
-DIST_FILES := $(BINARY) LICENSE NOTICE README.md
-
 .PHONY: build install test cover lint e2e e2e-intercept dist clean
 
 build:
@@ -38,18 +34,10 @@ e2e: build
 e2e-intercept: build
 	scripts/e2e-intercept.sh ./bin/$(BINARY)
 
-# Pure Go, so it cross-builds from any host; the Go linker ad-hoc signs
-# darwin/arm64 binaries itself. COPYFILE_DISABLE keeps macOS tar from adding
-# ._ resource files.
+# Release archive for Apple Silicon, what the Homebrew formula installs:
+# dist/skiff_$(VERSION)_darwin_arm64.tar.gz and its sha256.
 dist:
-	@case "$(VERSION)" in v[0-9]*) ;; *) echo "dist: VERSION must be a release tag like v1.2.3, got '$(VERSION)'" >&2; exit 1;; esac
-	rm -rf dist && mkdir -p dist/stage
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath \
-	  -ldflags '-s -w $(LDFLAGS)' -o dist/stage/$(BINARY) ./cmd/$(BINARY)
-	cp LICENSE NOTICE README.md dist/stage/
-	COPYFILE_DISABLE=1 tar -C dist/stage -czf dist/$(DIST_ARCHIVE) $(DIST_FILES)
-	cd dist && shasum -a 256 $(DIST_ARCHIVE) > $(DIST_ARCHIVE).sha256
-	rm -rf dist/stage
+	scripts/dist.sh '$(VERSION)'
 
 clean:
 	rm -rf bin dist coverage.out
