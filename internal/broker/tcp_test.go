@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -231,6 +232,43 @@ func TestTCPRevokeClosesOpenConnections(t *testing.T) {
 	})
 	if t.Failed() {
 		t.Logf("audit log:\n%s", env.audit.String())
+	}
+}
+
+func TestTCPRevokeDuringDialCarriesNothing(t *testing.T) {
+	// A dial may take seconds. A revoke in that time must not be missed
+	// just because the connection was not established yet.
+	dialing, release := make(chan struct{}), make(chan struct{})
+	old := dialUpstream
+	dialUpstream = func(ctx context.Context, network, address string) (net.Conn, error) {
+		close(dialing)
+		<-release
+		return old(ctx, network, address)
+	}
+	t.Cleanup(func() { dialUpstream = old })
+
+	var revoked atomic.Bool
+	grants := func() (grant.Set, error) {
+		if revoked.Load() {
+			return nil, nil
+		}
+		return grant.Set{{Cap: "mongo"}}, nil
+	}
+	up := newTCPUpstream(t, loopbackListener(t), func(c net.Conn) { _, _ = c.Write([]byte("data")) })
+	env := newTCPEnv(t, up.ln.Addr().String(), grants)
+
+	c := env.dial(t)
+	<-dialing
+	revoked.Store(true)
+	close(release)
+	if got := expectClosed(t, c); got != "" {
+		t.Errorf("the guest read %q after the revoke", got)
+	}
+	waitFor(t, "the deny line", func() bool {
+		return strings.Contains(env.audit.String(), `deny TCP "`+up.ln.Addr().String()+`" "not granted; skiff grant agent1 mongo"`)
+	})
+	if strings.Contains(env.audit.String(), "allow TCP") {
+		t.Errorf("a revoked connection must not be allowed:\n%s", env.audit.String())
 	}
 }
 

@@ -183,6 +183,19 @@ func TestOwnSocketComparesDirectoriesByIdentity(t *testing.T) {
 	if err := os.Symlink(run, link); err != nil {
 		t.Fatal(err)
 	}
+	// Aliases outside the run directory: one leads to a broker socket, the
+	// other to a proxy's.
+	for target, alias := range map[string]string{
+		filepath.Join(run, "other.sock"):   filepath.Join(other, "alias.sock"),
+		filepath.Join(other, "mongo.sock"): filepath.Join(other, "mongo-alias.sock"),
+	} {
+		if err := os.WriteFile(target, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, alias); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cases := map[string]struct {
 		upstream string
 		want     bool
@@ -190,7 +203,9 @@ func TestOwnSocketComparesDirectoriesByIdentity(t *testing.T) {
 		"a broker socket":              {"unix:" + filepath.Join(run, "other.sock"), true},
 		"below the run directory":      {"unix:" + filepath.Join(run, "nested", "x.sock"), true},
 		"through a symlink":            {"unix:" + filepath.Join(link, "other.sock"), true},
+		"an alias of a broker socket":  {"unix:" + filepath.Join(other, "alias.sock"), true},
 		"a proxy's socket":             {"unix:" + filepath.Join(other, "mongo.sock"), false},
+		"an alias of a proxy's socket": {"unix:" + filepath.Join(other, "mongo-alias.sock"), false},
 		"a sibling with a longer name": {"unix:" + run + "-old/x.sock", false},
 		"a TCP address":                {"127.0.0.1:27016", false},
 	}

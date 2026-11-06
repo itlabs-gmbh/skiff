@@ -32,6 +32,12 @@ var (
 	maxTCPConns   = 256
 )
 
+// dialUpstream connects to the upstream of a tcp capability; a variable for
+// tests.
+var dialUpstream = func(ctx context.Context, network, address string) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, network, address)
+}
+
 // ServeTCP relays every connection accepted on ln to the upstream of the tcp
 // capability c until the broker is closed. ln is the socket a session
 // forwards the capability's guest port to. The grant is checked per
@@ -214,7 +220,7 @@ func (r *tcpRelay) handle(guest net.Conn) {
 	}
 	network, address := r.cap.TCP.Dial()
 	ctx, cancel := context.WithTimeout(r.ctx, tcpDialTimeout)
-	up, err := (&net.Dialer{}).DialContext(ctx, network, address)
+	up, err := dialUpstream(ctx, network, address)
 	cancel()
 	if err != nil {
 		r.b.auditTCP(name, "fail", fmt.Sprintf("%q %q", upstream, err.Error()))
@@ -223,6 +229,14 @@ func (r *tcpRelay) handle(guest net.Conn) {
 	defer up.Close()
 	pair := &tcpPair{guest: guest, upstream: up}
 	if !r.track(pair) {
+		return
+	}
+	// Checked again now that the pair is watched. The dial may have taken
+	// seconds, and a revoke during it is seen neither by the check above nor
+	// by the watcher, which only knows tracked pairs.
+	if reason := r.b.tcpDenied(name); reason != "" {
+		r.untrack(pair)
+		r.b.auditTCP(name, "deny", fmt.Sprintf("%q %q", upstream, reason))
 		return
 	}
 	r.b.auditTCP(name, "allow", fmt.Sprintf("%q", upstream))

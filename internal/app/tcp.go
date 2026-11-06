@@ -30,7 +30,10 @@ func (a *App) tcpForwards(caps cap.Set, set grant.Set) ([]cap.TCPForward, error)
 // ownSocket reports whether upstream is a Unix socket in skiff's run
 // directory, where the brokers of all VMs listen. Directories are compared
 // by identity, not by spelling: on the Mac's case-insensitive file system
-// run/ and RUN/ are the same directory, and a symlink may lead there too.
+// run/ and RUN/ are the same directory, and a symlink may lead there too,
+// as a directory on the way or as the socket's own name. A link made after
+// the check is not seen; making one takes write access on the Mac, which
+// the guest and a capability file do not have.
 func (a *App) ownSocket(upstream string) bool {
 	network, address := cap.TCP{Upstream: upstream}.Dial()
 	if network != "unix" {
@@ -43,6 +46,10 @@ func (a *App) ownSocket(upstream string) bool {
 		// exists by then.
 		rel, err := filepath.Rel(a.paths.RunDir(), address)
 		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	// A socket path that is itself a symlink is judged by where it leads.
+	if target, err := filepath.EvalSymlinks(address); err == nil {
+		address = target
 	}
 	// The socket itself need not exist yet; its directory decides.
 	for dir := filepath.Dir(address); ; dir = filepath.Dir(dir) {
