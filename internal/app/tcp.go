@@ -1,9 +1,11 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sovyn-eu/skiff/internal/broker"
@@ -90,18 +92,48 @@ func removeSockets(sockets []TCPSocket) {
 	}
 }
 
+// recordTCPForwards notes which tcp capabilities the VM's broker serves from
+// now on. The file is replaced at every start, an empty list included, so
+// what a crashed broker left behind never describes a later one.
+func (a *App) recordTCPForwards(name string, served []TCPSocket) error {
+	data, err := json.Marshal(served)
+	if err != nil {
+		return fmt.Errorf("encode tcp forwards: %w", err)
+	}
+	if err := os.WriteFile(a.paths.TCPForwardsPath(name), data, 0o600); err != nil {
+		return fmt.Errorf("record tcp forwards: %w", err)
+	}
+	return nil
+}
+
+// servedTCP reports whether the VM's running broker forwards the guest port
+// of the tcp capability capName. It reads the record instead of probing the
+// socket: a connection there would be relayed to the upstream like one from
+// the guest, and the socket's name tells the port, not the capability.
+func (a *App) servedTCP(name, capName string, port int) bool {
+	data, err := os.ReadFile(a.paths.TCPForwardsPath(name))
+	if err != nil {
+		return false
+	}
+	var served []TCPSocket
+	if err := json.Unmarshal(data, &served); err != nil {
+		return false
+	}
+	return slices.ContainsFunc(served, func(s TCPSocket) bool { return s.Cap == capName && s.Port == port })
+}
+
 // noteTCPForwards says that the tcp capabilities among requested only reach
 // the guest through sessions started from now on: ssh fixes its forwards
 // when it connects, so a session that is already open cannot add one. It
-// stays quiet about a port the open session forwards already, which is the
-// case when the capability is granted again after a revoke.
+// stays quiet about a capability the open session forwards already, which
+// is the case when it is granted again after a revoke.
 func (a *App) noteTCPForwards(name string, caps cap.Set, requested grant.Set) {
 	if !broker.Alive(a.paths.SocketPath(name)) {
 		return
 	}
 	for _, g := range requested {
 		c, ok := caps[g.Cap]
-		if !ok || c.TCP == nil || broker.Alive(a.paths.TCPSocketPath(name, c.TCP.Port)) {
+		if !ok || c.TCP == nil || a.servedTCP(name, g.Cap, c.TCP.Port) {
 			continue
 		}
 		a.printf("note: %s reaches guest port %d through sessions and tunnels opened from now on; close the open ones first\n", g.Cap, c.TCP.Port)
