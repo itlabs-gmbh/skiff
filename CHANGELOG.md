@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.0] - 2026-11-06
+
+Capabilities can now hand a TCP port into the VM, so a database works there
+without its password: a proxy on the Mac logs in upstream, and the guest
+connects to its own loopback. skiff also installs with Homebrew now, as a
+prebuilt binary. Existing capabilities and VMs work as before.
+
 ### Added
 
 - **`tcp` capabilities.** A capability file with `[tcp]` sets `port`, a port
@@ -397,7 +406,8 @@ First public release.
 - The guest CRNG is reseeded from the Lima VM's `/dev/urandom` after every
   snapshot restore so clones diverge immediately.
 
-[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/sovyn-eu/skiff/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/sovyn-eu/skiff/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/sovyn-eu/skiff/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/sovyn-eu/skiff/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/sovyn-eu/skiff/compare/v0.4.0...v0.5.0
