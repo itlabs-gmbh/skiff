@@ -1,0 +1,37 @@
+# MongoDB in the guest without the password in the VM.
+#
+# A tcp capability only carries bytes; MongoDB's login (SCRAM) cannot be
+# rewritten in flight, because the client never sends the password, only a
+# proof computed from it. So the login moves to the Mac: a proxy there holds
+# the real connection string, logs in upstream and accepts clients without
+# credentials. mongobetween (https://github.com/coinbase/mongobetween) is one;
+# it also answers as a single router (mongos), so the driver in the guest does
+# not go looking for the replica set's members on its own.
+#
+#   # on the Mac, with the real connection string (it stays here):
+#   mongobetween -network unix -unlink \
+#     "$HOME/.skiff/mongo.sock=mongodb+srv://USER:PASSWORD@cluster.example.net/app"
+#
+#   cp examples/caps/mongodb.toml ~/.skiff/caps/      # set upstream to your path
+#   skiff grant agent1 mongodb
+#   skiff ssh agent1                                  # the port exists while a session is open
+#   # in the guest:
+#   mongosh "$MONGODB_URI"
+#
+# The proxy protects the password, not the data: the VM can read and write
+# whatever the database user behind the proxy may. Give the proxy a user that
+# is limited to the development database.
+#
+# The port is forwarded by sessions and tunnels opened after the grant. If the
+# guest runs a MongoDB of its own on 27017, choose another port here.
+
+name = "mongodb"
+description = "MongoDB through a proxy on the Mac; the password stays there"
+
+[tcp]
+# An absolute path; ~ and $HOME are not expanded.
+upstream = "unix:/Users/you/.skiff/mongo.sock"
+port = 27017
+
+[guest.env]
+MONGODB_URI = "mongodb://127.0.0.1:27017/app"

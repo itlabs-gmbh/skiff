@@ -42,7 +42,7 @@
         <li><a href="#secrets">Secrets</a></li>
         <li><a href="#lifetime">When the broker is up</a></li>
         <li><a href="#builtin">Built-in capabilities</a></li>
-        <li><a href="#primitives">The three primitives</a></li>
+        <li><a href="#primitives">The four primitives</a></li>
         <li><a href="#writing">Writing a capability</a></li>
         <li><a href="#reference">Capability file reference</a></li>
         <li><a href="#sharing">Sharing capabilities</a></li>
@@ -224,9 +224,9 @@ allow_grants = ["claude", "github"]</pre>
             </tbody>
           </table>
         </div>
-        <p>While it runs, the broker listens on <code>~/.skiff/run/&lt;vm&gt;.sock</code> (mode <code>0600</code>) and ssh forwards that socket to <code>127.0.0.1:7777</code> in the guest. ssh runs with <code>ExitOnForwardFailure</code>, so a process squatting on port 7777 in the guest makes the session fail instead of silently running without a tunnel.</p>
+        <p>While it runs, the broker listens on <code>~/.skiff/run/&lt;vm&gt;.sock</code> (mode <code>0600</code>) and ssh forwards that socket to <code>127.0.0.1:7777</code> in the guest. ssh runs with <code>ExitOnForwardFailure</code>, so a process squatting on port 7777 in the guest makes the session fail instead of silently running without a tunnel. Each granted <a href="#tcp"><code>tcp</code> capability</a> adds a socket of its own, <code>~/.skiff/run/&lt;vm&gt;.tcp-&lt;port&gt;.sock</code>, forwarded to its port in the guest under the same rule.</p>
         <p>For clients that only speak HTTP over a Unix socket (such as <code>gh</code>), the guest additionally gets <code>/run/skiff/broker.sock</code>: a systemd socket that relays to port 7777. It exists while any capability is granted; without an open session its connections are refused.</p>
-        <p>The broker reads the capability files when it starts. Grants are checked on every request, so <code>grant</code> and <code>revoke</code> apply at once to capabilities the broker already knows. A capability file you add, edit or replace while a session runs only takes effect with the next broker: close the VM's sessions and tunnels, then start a new one.</p>
+        <p>The broker reads the capability files when it starts. Grants are checked on every request, so <code>grant</code> and <code>revoke</code> apply at once to capabilities the broker already knows. The one exception is granting a <code>tcp</code> capability: ssh fixes its forwards when it connects, so the port appears in the sessions and tunnels opened after the grant. Its revoke applies at once like any other. A capability file you add, edit or replace while a session runs only takes effect with the next broker: close the VM's sessions and tunnels, then start a new one.</p>
 
         <h3>Several sessions, one broker</h3>
         <p>Each VM has exactly one broker, owned by one process through a lock. A second <code>skiff ssh</code> notices the owner and uses its broker instead of forwarding a second time. If the owner ends first, a remaining session takes over within about two seconds. A forward is only ever made by the owner, so none can outlive the broker it points to.</p>
@@ -261,8 +261,8 @@ allow_grants = ["claude", "github"]</pre>
       </section>
 
       <section id="primitives">
-        <h2>The three primitives</h2>
-        <p>The broker itself knows nothing about Claude, GitHub or any other tool. It has three primitives; every tool-specific detail lives in a capability file. Each file uses exactly one.</p>
+        <h2>The four primitives</h2>
+        <p>The broker itself knows nothing about Claude, GitHub or any other tool. It has four primitives; every tool-specific detail lives in a capability file. Each file uses exactly one.</p>
 
         <h3 id="proxy"><code>[proxy]</code> – inject credentials, forward the request</h3>
         <p>Requests to <code>/&lt;cap&gt;/rest</code> go to <code>upstream</code> + <code>/rest</code>. Use it for any HTTP API that authenticates with a header.</p>
@@ -302,6 +302,20 @@ allow_grants = ["claude", "github"]</pre>
           </table>
         </div>
         <p>Limits: 8 MiB in, 8 MiB out, two minutes per call, four concurrent runs per capability. A non-zero exit becomes a generic <code>502</code> in the guest, with the last stderr line in the audit log. Whatever the program prints lands in the VM, so never print a token.</p>
+
+        <h3 id="tcp"><code>[tcp]</code> – a port in the guest, an address on the Mac</h3>
+        <p>Makes <code>port</code> on the guest's <code>127.0.0.1</code> reach <code>upstream</code> as seen from the Mac. Use it for databases and other services that do not speak HTTP.</p>
+        <ul>
+          <li>The broker carries bytes and injects nothing. A database login cannot be rewritten in flight, so it moves to the Mac: run a proxy there that holds the password and logs in upstream (mongobetween, PgBouncer, the Cloud SQL Auth Proxy) and point <code>upstream</code> at it. The connection string in the guest then holds no password. Without such a proxy the capability only gives the VM the network path.</li>
+          <li><code>upstream</code> is a <code>host:port</code> or <code>unix:/absolute/path</code>; it may not be one of skiff's own sockets. <code>port</code> may be any port but <code>22</code> and the broker's <code>7777</code>.</li>
+          <li>ssh fixes its forwards when it connects, so the port appears in the sessions and tunnels opened <em>after</em> the grant; <code>skiff grant</code> says so when one is open. A session does not start while something else in the guest listens on the port, and two granted capabilities cannot share one.</li>
+          <li>Every connection is checked against the grants. A revoke refuses new connections at once and closes the open ones within about two seconds, so a connection pool does not keep its access.</li>
+          <li>Servers that speak first (MySQL, SMTP) work, as does a client that stops sending and waits for the rest of the answer. Up to 256 connections per capability are open at a time.</li>
+          <li>The guest gets no error message, a refused connection is simply closed; the reason is in the audit log on the Mac.</li>
+        </ul>
+        <div class="callout">
+          <p>The proxy protects the password, not the data. The VM can read and write whatever the database user behind the proxy may, so give the proxy a user that is limited to the development database.</p>
+        </div>
       </section>
 
       <section id="writing">
@@ -347,7 +361,7 @@ OPENAI_API_KEY = "{{ .PseudoToken }}"</pre>
           <span class="text">skiff grant agent1 openai</span>
           <button type="button" aria-label="Copy skiff grant agent1 openai to the clipboard"></button>
         </div>
-        <p>More complete examples ship in the repository: <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/chrome-devtools.toml"><code>chrome-devtools.toml</code></a> bridges the Chrome DevTools MCP server from the Mac, <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/gh-api.toml"><code>gh-api.toml</code></a> answers read-only GitHub API calls with <code>gh</code> on the Mac through <code>exec</code>, and <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure.toml"><code>azure.toml</code></a> with <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure-identity.toml"><code>azure-identity.toml</code></a> runs the Azure CLI through <a href="#intercept">intercept routes</a> with tokens from <code>az</code> on the Mac (see <a href="agents.html#azure">the guide</a>), and <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure-devops.toml"><code>azure-devops.toml</code></a> does the same for Azure DevOps git, REST and Artifacts without a PAT (<a href="agents.html#azure-devops">guide</a>).</p>
+        <p>More complete examples ship in the repository: <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/chrome-devtools.toml"><code>chrome-devtools.toml</code></a> bridges the Chrome DevTools MCP server from the Mac, <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/gh-api.toml"><code>gh-api.toml</code></a> answers read-only GitHub API calls with <code>gh</code> on the Mac through <code>exec</code>, and <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure.toml"><code>azure.toml</code></a> with <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure-identity.toml"><code>azure-identity.toml</code></a> runs the Azure CLI through <a href="#intercept">intercept routes</a> with tokens from <code>az</code> on the Mac (see <a href="agents.html#azure">the guide</a>), and <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/azure-devops.toml"><code>azure-devops.toml</code></a> does the same for Azure DevOps git, REST and Artifacts without a PAT (<a href="agents.html#azure-devops">guide</a>). <a href="https://github.com/sovyn-eu/skiff/blob/main/examples/caps/mongodb.toml"><code>mongodb.toml</code></a> hands a database port into the guest with <a href="#tcp"><code>tcp</code></a>, while the password stays with a proxy on the Mac (<a href="agents.html#databases">guide</a>).</p>
 
         <h3>Template data</h3>
         <p>Every guest string and every header is a Go template with these fields:</p>
@@ -395,6 +409,7 @@ OPENAI_API_KEY = "{{ .PseudoToken }}"</pre>
               <tr><td><code>routes.intercept</code></td><td><code>true</code> to terminate TLS for <code>host</code> (see <a href="#intercept">intercept routes</a>); the route must inject at least one header, and its <code>upstream</code> may be left out (<code>https://&lt;host&gt;</code>) but may not have a path</td></tr>
               <tr><td><code>[mcp] command</code>, <code>args</code>, <code>env</code></td><td>the stdio MCP server to run on the Mac</td></tr>
               <tr><td><code>[exec] command</code>, <code>args</code></td><td>the program to run per request on the Mac</td></tr>
+              <tr><td><code>[tcp] upstream</code>, <code>port</code></td><td>where connections go as seen from the Mac (<code>host:port</code> or <code>unix:/absolute/path</code>), and the port on the guest's <code>127.0.0.1</code></td></tr>
               <tr><td><code>[guest.env]</code></td><td>variable → template; names <code>[A-Z_][A-Z0-9_]*</code></td></tr>
               <tr><td><code>[[guest.files]] path</code>, <code>mode</code>, <code>content</code></td><td>absolute path, octal mode like <code>0644</code></td></tr>
               <tr><td><code>[[guest.blocks]] path</code>, <code>comment</code>, <code>content</code></td><td>managed section; <code>comment</code> is <code>#</code>, <code>;</code> or <code>//</code></td></tr>
@@ -450,8 +465,10 @@ install as ~/.skiff/caps/gemini.toml? [y/N]</pre>
 2026-10-08T09:12:51Z vm=agent1 cap=claude <span class="hl">allow</span> POST "/claude/v1/messages" 200
 2026-10-08T09:13:05Z vm=agent2 cap=github <span class="hl">denied</span> GET "/github/acme/app/info/refs" 403
 2026-11-04T08:40:04Z vm=agent1 cap=azure <span class="hl">allow</span> GET "/subscriptions" 200 host="management.azure.com"
-2026-11-04T08:41:12Z vm=agent2 cap=azure <span class="hl">deny</span> TLS "management.azure.com" "not granted; skiff grant agent2 azure"</pre>
-        <p>The decision is one of <code>allow</code>, <code>denied</code>, <code>unknown cap</code>, <code>no cap</code>, <code>unsafe path</code>, <code>grants</code>, <code>setup</code>, and for intercepted requests <code>host mismatch</code> or <code>not intercepted</code>; those lines end with the TLS server name as <code>host="…"</code>. A refused TLS handshake has no request, so it is logged as <code>deny TLS</code> with the server name and the reason. Host-side diagnostics, such as a missing Keychain item or an MCP server's stderr, appear as indented lines underneath. The guest only ever sees a generic message, so paths, commands and item names stay on the Mac.</p>
+2026-11-04T08:41:12Z vm=agent2 cap=azure <span class="hl">deny</span> TLS "management.azure.com" "not granted; skiff grant agent2 azure"
+2026-11-06T10:54:56Z vm=agent1 cap=mongodb <span class="hl">allow</span> TCP "unix:/Users/you/.skiff/mongo.sock"
+2026-11-06T10:58:31Z vm=agent1 cap=mongodb <span class="hl">close</span> TCP "unix:/Users/you/.skiff/mongo.sock" sent=1840 received=52211</pre>
+        <p>The decision is one of <code>allow</code>, <code>denied</code>, <code>unknown cap</code>, <code>no cap</code>, <code>unsafe path</code>, <code>grants</code>, <code>setup</code>, and for intercepted requests <code>host mismatch</code> or <code>not intercepted</code>; those lines end with the TLS server name as <code>host="…"</code>. A refused TLS handshake has no request, so it is logged as <code>deny TLS</code> with the server name and the reason. A connection of a <code>tcp</code> capability is logged as <code>allow TCP</code> with its upstream and again as <code>close TCP</code> with the bytes the guest sent and received (and <code>reason="revoked"</code> when a revoke ended it), or as <code>deny TCP</code> or <code>fail TCP</code> with the reason when it was refused or the upstream did not answer. Host-side diagnostics, such as a missing Keychain item or an MCP server's stderr, appear as indented lines underneath. The guest only ever sees a generic message, so paths, commands and item names stay on the Mac.</p>
         <p>A denied request tells the guest exactly what would allow it, which also tells an agent what to ask you for:</p>
 <pre class="code">$ curl -s 127.0.0.1:7777/github/acme/app/info/refs
 {"error":"github is not granted to agent2","hint":"skiff grant agent2 github"}</pre>
@@ -463,7 +480,7 @@ install as ~/.skiff/caps/gemini.toml? [y/N]</pre>
         <ul>
           <li><strong>No credential in the guest.</strong> The guest holds a placeholder that is worth nothing outside the tunnel. A copied disk, a leaked environment, a malicious dependency: none of them yields a token.</li>
           <li><strong>The connection is the identity.</strong> Each VM's broker listens on its own socket on the Mac, and the only way in from a guest is that VM's own ssh forward. One VM can never present itself as another.</li>
-          <li><strong>Default deny, re-checked per request.</strong> A revoke applies to the next request, not the next session.</li>
+          <li><strong>Default deny, re-checked per request.</strong> A revoke applies to the next request, not the next session, and closes the open connections of a <code>tcp</code> capability.</li>
           <li><strong>Time-boxed.</strong> No session, no broker. The hole is open while you are working with the VM, not while it merely runs.</li>
           <li><strong>A repository cannot grant itself.</strong> A <code>.skiff</code> is used only once you have trusted its current content, and <code>allow_grants</code> in your machine default caps what any repository file may ask for, trusted or not. The profile setup never runs with the broker or a forwarded SSH agent.</li>
           <li><strong>Reviewable.</strong> The secrets a capability can send are fixed in its file and shown before installation; upstreams must use TLS; route hosts cannot be <code>localhost</code> or an IP and cannot catch another capability's traffic.</li>
@@ -471,7 +488,7 @@ install as ~/.skiff/caps/gemini.toml? [y/N]</pre>
         </ul>
         <h3>What it does not do</h3>
         <ul>
-          <li><strong>Limit the upstream.</strong> With a capability granted, the guest can do whatever its token allows. The token is the boundary: use fine-grained GitHub tokens and per-project API keys.</li>
+          <li><strong>Limit the upstream.</strong> With a capability granted, the guest can do whatever its token allows. The token is the boundary: use fine-grained GitHub tokens and per-project API keys. The same holds for a <code>tcp</code> capability: the broker does not read the protocol, so the database user behind the proxy is the boundary.</li>
           <li><strong>Tell processes apart inside the guest.</strong> While the tunnel is open, any process in the VM can use what the VM was granted. One VM per task keeps that blast radius small.</li>
           <li><strong>Sandbox <code>mcp</code> and <code>exec</code>.</strong> Those programs run on your Mac with your user's rights. Read them before you install them and pin their versions.</li>
           <li><strong>Hide what the agent saves itself.</strong> If an agent logs in inside the VM on its own, that credential is on the VM's disk like any other file.</li>

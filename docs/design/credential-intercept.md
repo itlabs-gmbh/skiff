@@ -45,7 +45,9 @@ once, and every request is audited with method, host and path.
   `az keyvault secret show` or `az storage account keys list` receives
   secrets in the response. Scope the identity behind the capability instead.
 - Non-HTTP protocols (SSH, databases), mutual TLS towards the upstream,
-  clients that pin certificates.
+  clients that pin certificates. Databases are served by the `tcp`
+  primitive instead, which carries a port to a proxy on the Mac and rewrites
+  nothing.
 
 ## Relation to superfly/tokenizer
 

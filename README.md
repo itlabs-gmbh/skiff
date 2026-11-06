@@ -375,7 +375,7 @@ credential behind it can reach. Limit that at the source, for GitHub with a
 fine-grained token restricted to the repositories the agent works on. GitHub
 enforces that limit itself, and the token never enters the guest.
 
-The broker is harness-neutral. It knows three primitives, and everything
+The broker is harness-neutral. It knows four primitives, and everything
 specific to Claude Code, GitHub or any other tool is a **capability file**:
 
 | Primitive | What the broker does                                                        |
@@ -383,6 +383,7 @@ specific to Claude Code, GitHub or any other tool is a **capability file**:
 | `proxy`   | reverse-proxies `/<cap>/...` (or a routed `Host`) to an upstream and injects headers from secrets |
 | `mcp`     | runs a stdio MCP server on the Mac and serves it as an HTTP MCP endpoint     |
 | `exec`    | pipes the request through an external program (`skiff-cap-<name>`)        |
+| `tcp`     | carries a port on the guest's loopback to an address on the Mac, for databases and other non-HTTP services |
 
 ```sh
 skiff cap ls                           # embedded: claude, github; yours in ~/.skiff/caps
@@ -428,6 +429,21 @@ there are no wildcards. `examples/caps/azure.toml` with `azure-identity.toml`
 runs `az` this way, `examples/caps/azure-devops.toml` git, REST and Artifacts
 for Azure DevOps without a PAT, and `make e2e-intercept` tests the mechanism against a
 real VM. Design and trade-offs: `docs/design/credential-intercept.md`.
+
+Databases and other services that do not speak HTTP use the `tcp` primitive:
+`port` on the guest's `127.0.0.1` reaches `upstream` as seen from the Mac, a
+`host:port` or `unix:/absolute/path`. The broker carries the bytes and injects
+nothing, so the credential belongs to a proxy on the Mac that logs in upstream
+(mongobetween, PgBouncer, the Cloud SQL Auth Proxy); the guest's connection
+string then holds no password. Without such a proxy the capability only
+gives the VM the network path, and the password would have to sit in the VM
+again. ssh fixes its forwards when it connects, so the port appears in the
+sessions and tunnels opened after the grant; a session does not start while
+something else in the guest listens on the port, and two granted capabilities
+cannot share one. Every connection is checked against the grants and logged
+with the bytes it carried, and a revoke also closes the connections that are
+open, within about two seconds. `examples/caps/mongodb.toml` shows MongoDB,
+and `make e2e-tcp` tests the mechanism against a real VM.
 
 The embedded `claude` capability points `ANTHROPIC_BASE_URL` at the broker and
 sets `CLAUDE_CODE_OAUTH_TOKEN` to the placeholder, so the unmodified Claude Code
@@ -489,6 +505,7 @@ make cover    # coverage summary
 make lint     # gofmt, go vet
 make e2e      # boots a real VM (requires skiff prepare), cleans up afterwards
 make e2e-intercept  # intercept routes against a real VM and httpbin.org
+make e2e-tcp  # a tcp capability against a real VM and a listener on the Mac
 ```
 
 Layout: `cmd/skiff` (entry point), `internal/cli` (cobra commands),
