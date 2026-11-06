@@ -36,7 +36,6 @@ class Skiff < Formula
   desc "Throwaway Linux VMs on Apple Silicon, one per task or coding agent"
   homepage "https://github.com/sovyn-eu/skiff"
   url "${url}"
-  version "${tag#v}"
   sha256 "${sha}"
   license "Apache-2.0"
 
